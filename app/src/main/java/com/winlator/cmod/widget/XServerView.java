@@ -364,4 +364,8 @@ public class XServerView extends XServerRendererView implements SurfaceHolder.Ca
     public native void nativeSetCompositeRedirected(int windowId, boolean redirected);
     @FastNative
     public native void nativeCompositeRedirect(int srcDrawableId, int dstDrawableId, short dstX, short dstY);
+    @FastNative
+    public native void nativeSetFrameGenEnabled(boolean enabled);
+    @FastNative
+    public native boolean nativeIsFrameGenEnabled();
 }

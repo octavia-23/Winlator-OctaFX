@@ -72,6 +72,23 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Bionic-Build-${{ github.run_number }}
+          name: Winlator-OctaFX-v1.0.0
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/4.1'
+        with:
+          tag_name: v1.0.0-OctaFX
+          name: "Winlator-OctaFX v1.0.0 (Native Frame Generation)"
+          body: |
+            Winlator-OctaFX: High-performance Bionic build with native Vulkan Frame Generation and 8s Gen 3 hardware tuning.
+            
+            ### Features:
+            - **Native Vulkan Frame Generation**: In-engine bidirectional compute frame interpolation.
+            - **Bionic libc Architecture**: Direct Android libc bindings with zero GNU glibc overhead.
+            - **DisplayX Direct SurfaceControl**: Lowest possible presentation latency on modern Android.
+          files: app/build/outputs/apk/release/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -108,9 +108,11 @@ class EffectComposer {
         VkPipelineLayout pipelineLayout;
         DescriptorPoolBuffer poolsBuffer;
         VkPipeline colorSwapPipeline;
+        VkPipeline frameGenPipeline;
         VulkanTable dispatchTable;
         
         bool colorSwapEnabled = false;
+        bool frameGenEnabled = false;
         bool initialized = false;
         std::atomic_bool isOperationPending{false};
         
@@ -127,7 +129,11 @@ class EffectComposer {
         void apply(Drawable *drawable);
         void setColorSwapEnabled(bool enabled);
         bool isColorSwapEnabled();
+        void setFrameGenEnabled(bool enabled);
+        bool isFrameGenEnabled();
+        void generateFrame(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer);
         bool isEnabled();
         bool isSuitableForColorSwap(Drawable *drawable);
         bool isPending();
 };
+

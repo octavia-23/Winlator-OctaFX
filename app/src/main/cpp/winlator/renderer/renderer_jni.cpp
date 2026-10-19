@@ -692,3 +692,14 @@ Java_com_winlator_cmod_widget_XServerView_nativeCompositeRedirect(JNIEnv *env, j
         }
     }
 }
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_winlator_cmod_widget_XServerView_nativeSetFrameGenEnabled(JNIEnv *env, jclass obj, jboolean enabled) {
+    effectComposer.setFrameGenEnabled(enabled);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_winlator_cmod_widget_XServerView_nativeIsFrameGenEnabled(JNIEnv *env, jclass obj) {
+    return effectComposer.isFrameGenEnabled();
+}
+
