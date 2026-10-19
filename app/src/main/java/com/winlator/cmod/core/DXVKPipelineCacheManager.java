@@ -90,7 +90,7 @@ public final class DXVKPipelineCacheManager {
             while ((read = in.read(buf)) != -1) {
                 zstdOut.write(buf, 0, read);
             }
-            zstdOut.finish();
+            zstdOut.flush();
             Log.i(TAG, "Compressed DXVK cache " + src.getName() + " (" + src.length() + "B -> " + dst.length() + "B)");
             return true;
         } catch (Throwable t) {

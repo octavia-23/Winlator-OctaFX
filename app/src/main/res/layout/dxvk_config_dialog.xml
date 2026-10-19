@@ -176,7 +176,7 @@
 
             <Button
                 android:id="@+id/BTClearZstdCache"
-                style="@style/Button"
+                style="@style/ButtonNeutral"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
                 android:paddingLeft="8dp"
