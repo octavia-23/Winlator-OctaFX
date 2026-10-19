@@ -69,7 +69,8 @@ public class Container {
     private String desktopTheme = WineThemeManager.DEFAULT_DESKTOP_THEME;
     private String fexcoreVersion;
     private String fexcorePreset = FEXCorePreset.INTERMEDIATE;
-    private String box64Preset = Box64Preset.COMPATIBILITY;
+    private String box64Preset = getDefaultBox64Preset();
+    private boolean sustainedPerformance = true;
     private File rootDir;
     private JSONObject extraData;
     private String midiSoundFont = "";
@@ -340,6 +341,27 @@ public class Container {
         return fexcorePreset;
     }
 
+    public static String getDefaultBox64Preset() {
+        try {
+            com.winlator.cmod.core.SoCDetector.Preset preset = com.winlator.cmod.core.SoCDetector.getDetectedPreset();
+            if (preset == com.winlator.cmod.core.SoCDetector.Preset.SNAPDRAGON_8S_GEN3
+                    || preset == com.winlator.cmod.core.SoCDetector.Preset.SNAPDRAGON_8_GEN3
+                    || preset == com.winlator.cmod.core.SoCDetector.Preset.SNAPDRAGON_8_GEN2
+                    || preset == com.winlator.cmod.core.SoCDetector.Preset.DIMENSITY_FLAGSHIP) {
+                return Box64Preset.ARM9_TURBO;
+            }
+        } catch (Throwable ignored) {}
+        return Box64Preset.COMPATIBILITY;
+    }
+
+    public boolean isSustainedPerformance() {
+        return sustainedPerformance;
+    }
+
+    public void setSustainedPerformance(boolean sustainedPerformance) {
+        this.sustainedPerformance = sustainedPerformance;
+    }
+
     public String getBox64Preset() {
         return box64Preset;
     }
@@ -516,6 +538,7 @@ public class Container {
             data.put("primaryController", primaryController);
             data.put("controllerMapping", controllerMapping);
             data.put("exclusiveXInput", exclusiveXInput);
+            data.put("sustainedPerformance", sustainedPerformance);
             if (!WineInfo.isMainWineVersion(wineVersion)) data.put("wineVersion", wineVersion);
             FileUtils.writeString(getConfigFile(), data.toString());
         }
@@ -636,6 +659,9 @@ public class Container {
                     break;
                 case "exclusiveXInput" :
                     setExclusiveXInput(data.getBoolean(key));
+                    break;
+                case "sustainedPerformance" :
+                    setSustainedPerformance(data.getBoolean(key));
                     break;
             }
         }

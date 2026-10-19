@@ -631,7 +631,7 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
 
         final Spinner sBox64Preset = view.findViewById(R.id.SBox64Preset);
         Box64PresetManager.loadSpinner("box64", sBox64Preset, isEditMode() ? container.getBox64Preset()
-                : preferences.getString("box64_preset", Box64Preset.COMPATIBILITY));
+                : preferences.getString("box64_preset", Container.getDefaultBox64Preset()));
 
         final Spinner sFEXCoreVersion = view.findViewById(R.id.SFEXCoreVersion);
         FEXCoreManager.loadFEXCoreVersion(context, contentsManager, sFEXCoreVersion,
@@ -725,6 +725,11 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
 
         boolean syncCpuTopology = isEditMode() && container.isSyncCpuTopology();
         cbSyncCpuTopology.setChecked(syncCpuTopology);
+
+        final CheckBox cbSustainedPerformance = view.findViewById(R.id.CBSustainedPerformance);
+        if (cbSustainedPerformance != null) {
+            cbSustainedPerformance.setChecked(!isEditMode() || container.isSustainedPerformance());
+        }
 
         final Spinner sPrimaryController = view.findViewById(R.id.SPrimaryController);
         sPrimaryController.setSelection(isEditMode() ? container.getPrimaryController() : 1);
@@ -847,6 +852,9 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
                     if (cbMemoryDefense != null) {
                         container.putExtra("memoryDefense", cbMemoryDefense.isChecked() ? "1" : "0");
                     }
+                    if (cbSustainedPerformance != null) {
+                        container.setSustainedPerformance(cbSustainedPerformance.isChecked());
+                    }
                     container.setFullscreenStretched(fullscreenStretched);
                     container.setExclusiveXInput(exclusiveXInput);
                     container.setInputType(finalInputType);
@@ -910,6 +918,9 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
                     }
                     if (cbMemoryDefense != null) {
                         extraData.put("memoryDefense", cbMemoryDefense.isChecked() ? "1" : "0");
+                    }
+                    if (cbSustainedPerformance != null) {
+                        data.put("sustainedPerformance", cbSustainedPerformance.isChecked());
                     }
                     data.put("extraData", extraData);
 

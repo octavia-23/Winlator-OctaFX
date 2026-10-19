@@ -7,6 +7,7 @@ public class Box64Preset {
     public static final String COMPATIBILITY = "COMPATIBILITY";
     public static final String INTERMEDIATE = "INTERMEDIATE";
     public static final String PERFORMANCE = "PERFORMANCE";
+    public static final String ARM9_TURBO = "ARM9_TURBO";
     public static final String CUSTOM = "CUSTOM";
     public final String id;
     public final String name;

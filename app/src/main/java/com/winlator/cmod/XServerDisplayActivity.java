@@ -182,6 +182,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     private WineRequestHandler wineRequestHandler;
     private float globalCursorSpeed = 1.0f;
     private float refreshRate = 60.0f;
+    private com.winlator.cmod.core.ADPFManager adpfManager;
     private MagnifierView magnifierView;
     private boolean softStretchEnabled = false;
     private DebugDialog debugDialog;
@@ -442,6 +443,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
             ProcessHelper.lockCriticalMemory();
         }
 
+        if (container != null && container.isSustainedPerformance()) {
+            com.winlator.cmod.core.ADPFManager.setSustainedPerformanceMode(this, true);
+            adpfManager = new com.winlator.cmod.core.ADPFManager();
+            adpfManager.init(this, refreshRate);
+        }
+
         if (shortcutPath != null && !shortcutPath.isEmpty()) {
             shortcut = new Shortcut(container, new File(shortcutPath));
         }
@@ -604,6 +611,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
                     if (xServerView != null) xServerView.setFpsWindowId(window.id);
                     if (classicHud != null) classicHud.update();
                     if (modernHud != null) modernHud.onFrame();
+                }
+
+                if (adpfManager != null && window.isApplicationWindow()) {
+                    adpfManager.onFrame();
                 }
             }
 
@@ -807,6 +818,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
     public void onResume() {
         super.onResume();
 
+        if (container != null && container.isSustainedPerformance()) {
+            com.winlator.cmod.core.ADPFManager.setSustainedPerformanceMode(this, true);
+        }
+
         if (environment != null) {
             xServerView.onResume();
             environment.onResume();
@@ -821,6 +836,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
     public void onPause() {
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
         super.onPause();
+
+        if (container != null && container.isSustainedPerformance()) {
+            com.winlator.cmod.core.ADPFManager.setSustainedPerformanceMode(this, false);
+        }
 
         if (!isInPictureInPictureMode()) {
             if (environment != null) {
@@ -962,6 +981,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
         try {
             com.winlator.cmod.core.DXVKPipelineCacheManager.compressAllCaches(this);
         } catch (Throwable ignored) {}
+        if (adpfManager != null) {
+            adpfManager.close();
+            adpfManager = null;
+        }
         super.onDestroy();
     }
 
