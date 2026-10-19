@@ -132,6 +132,17 @@ android {
         freeCompilerArgs += ['-opt-in=androidx.compose.material3.ExperimentalMaterial3Api']
     }
 
+    signingConfigs {
+        release {
+            storeFile file("keystore/octafx.keystore")
+            storePassword "octafx2026"
+            keyAlias "octafx"
+            keyPassword "octafx2026"
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+
     // Keep Winlator’s buildTypes
     buildTypes {
         debug {
@@ -139,7 +150,7 @@ android {
         }
         release {
             minifyEnabled false
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             crunchPngs false
         }
     }
