@@ -67,7 +67,16 @@ jobs:
           test -s app/src/main/jniLibs/arm64-v8a/libVkLayer_khronos_validation.so
 
       - name: Build with Gradle
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease --stacktrace --info
+
+      - name: Upload Gradle Build Failure Reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-failure-reports
+          path: |
+            app/build/reports/
+            **/hs_err_pid*.log
 
       - name: Prepare APK Release Artifact
         run: |
