@@ -74,29 +74,27 @@ jobs:
           mkdir -p release-output
           APK_FILE=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
           echo "Found APK: $APK_FILE"
-          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.0.0.apk
+          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.0.1.apk
           ls -lh release-output/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Winlator-OctaFX-v1.0.0
-          path: release-output/Winlator-OctaFX-v1.0.0.apk
+          name: Winlator-OctaFX-v1.0.1
+          path: release-output/Winlator-OctaFX-v1.0.1.apk
           if-no-files-found: error
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/4.1'
         with:
-          tag_name: v1.0.0-OctaFX
-          name: "Winlator-OctaFX v1.0.0 (Native Frame Generation)"
+          tag_name: v1.0.1-OctaFX
+          name: "Winlator-OctaFX v1.0.1 (Native Frame Generation)"
           body: |
-            Winlator-OctaFX: High-performance Bionic build with native Vulkan Frame Generation and 8s Gen 3 hardware tuning.
-            
-            ### Features:
-            - **Native Vulkan Frame Generation**: In-engine bidirectional compute frame interpolation.
-            - **Bionic libc Architecture**: Direct Android libc bindings with zero GNU glibc overhead.
-            - **DisplayX Direct SurfaceControl**: Lowest possible presentation latency on modern Android.
-          files: release-output/Winlator-OctaFX-v1.0.0.apk
+            Winlator-OctaFX v1.0.1:
+            - **Native Vulkan Frame Generation**: Directly accessible both inside Container Settings and the In-Game Sidebar.
+            - **Snapdragon 8s Gen 3 Tuning**: Unified Bionic libc, Fast GPL linking, and custom Turnip Adreno 735 driver compatibility.
+            - **DisplayX Hardware Direct Surface**: Ultra-low latency presentation.
+          files: release-output/Winlator-OctaFX-v1.0.1.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

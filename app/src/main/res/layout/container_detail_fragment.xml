@@ -319,6 +319,19 @@
             </LinearLayout>
 
             <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:text="Vulkan Frame Generation" />
+
+            <Spinner
+                android:id="@+id/SFrameGen"
+                style="@style/ComboBoxCompact"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:background="@drawable/combo_box_no_arrow_dark" />
+
+            <TextView
                 android:id="@+id/TVAudioDriverLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

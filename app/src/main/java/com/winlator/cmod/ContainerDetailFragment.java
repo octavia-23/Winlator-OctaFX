@@ -497,6 +497,20 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
             });
         }
 
+        final Spinner spFrameGen = view.findViewById(R.id.SFrameGen);
+        if (spFrameGen != null) {
+            ArrayAdapter<String> frameGenAdapter = new ArrayAdapter<>(context, R.layout.spinner_item_amoled,
+                    new String[]{"Off", "2x Interpolation (OctaFX)"});
+            frameGenAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_amoled_compact);
+            spFrameGen.setAdapter(frameGenAdapter);
+            String savedFG = isEditMode() ? container.getExtra("graphicsFrameGen") : "0";
+            int fgPos = 0;
+            if (!savedFG.isEmpty()) {
+                try { fgPos = Integer.parseInt(savedFG); } catch (Exception ignored) {}
+            }
+            spFrameGen.setSelection(Math.max(0, Math.min(fgPos, 1)));
+        }
+
         Spinner sAudioDriver = view.findViewById(R.id.SAudioDriver);
         AppUtils.setSpinnerSelectionFromIdentifier(sAudioDriver,
                 isEditMode() ? container.getAudioDriver() : Container.DEFAULT_AUDIO_DRIVER);
@@ -781,6 +795,9 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
                     container.setDrives(drives);
                     container.setShowFPS(showFPS);
                     container.putExtra("hudMode", String.valueOf(hudMode));
+                    if (spFrameGen != null) {
+                        container.putExtra("graphicsFrameGen", String.valueOf(spFrameGen.getSelectedItemPosition()));
+                    }
                     container.setFullscreenStretched(fullscreenStretched);
                     container.setExclusiveXInput(exclusiveXInput);
                     container.setInputType(finalInputType);
@@ -838,6 +855,11 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
                     data.put("lc_all", lc_all);
                     data.put("primaryController", primaryController);
                     data.put("controllerMapping", controllerMapping);
+                    JSONObject extraData = new JSONObject();
+                    if (spFrameGen != null) {
+                        extraData.put("graphicsFrameGen", String.valueOf(spFrameGen.getSelectedItemPosition()));
+                    }
+                    data.put("extraData", extraData);
 
                     PreloaderDialog creationDialog = new PreloaderDialog(getActivity());
                     creationDialog.show(R.string.creating_container);

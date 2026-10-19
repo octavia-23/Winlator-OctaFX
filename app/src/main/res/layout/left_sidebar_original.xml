@@ -365,7 +365,7 @@
                     android:orientation="vertical"
                     android:background="@drawable/sidebar_card"
                     android:padding="12dp"
-                    android:visibility="gone">
+                    android:visibility="visible">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

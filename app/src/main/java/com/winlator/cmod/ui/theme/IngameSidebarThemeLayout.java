@@ -130,6 +130,7 @@ public class IngameSidebarThemeLayout extends FrameLayout {
         flattenSection(imageQuality);
 
         View frameGen = findViewById(R.id.LLFrameGenOptions);
+        insertSectionLabelBefore(frameGen, "FRAME GENERATION");
         flattenSection(frameGen);
 
         View savePreset = findViewById(R.id.BTSaveGraphicsPreset);
