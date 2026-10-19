@@ -322,7 +322,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:paddingTop="8dp"
-                android:text="Vulkan Frame Generation" />
+                android:text="Frame Generation Engine" />
 
             <Spinner
                 android:id="@+id/SFrameGen"
@@ -330,6 +330,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:background="@drawable/combo_box_no_arrow_dark" />
+
+            <CheckBox
+                android:id="@+id/CBMemoryDefense"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:checked="true"
+                android:text="Aggressive RAM Defense (LMK / OOM Immunity)" />
 
             <TextView
                 android:id="@+id/TVAudioDriverLabel"

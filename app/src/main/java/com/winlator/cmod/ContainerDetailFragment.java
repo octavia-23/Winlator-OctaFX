@@ -511,6 +511,12 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
             spFrameGen.setSelection(Math.max(0, Math.min(fgPos, 2)));
         }
 
+        final CheckBox cbMemoryDefense = view.findViewById(R.id.CBMemoryDefense);
+        if (cbMemoryDefense != null) {
+            String savedMem = isEditMode() ? container.getExtra("memoryDefense", "1") : "1";
+            cbMemoryDefense.setChecked(!"0".equals(savedMem));
+        }
+
         Spinner sAudioDriver = view.findViewById(R.id.SAudioDriver);
         AppUtils.setSpinnerSelectionFromIdentifier(sAudioDriver,
                 isEditMode() ? container.getAudioDriver() : Container.DEFAULT_AUDIO_DRIVER);
@@ -798,6 +804,9 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
                     if (spFrameGen != null) {
                         container.putExtra("graphicsFrameGen", String.valueOf(spFrameGen.getSelectedItemPosition()));
                     }
+                    if (cbMemoryDefense != null) {
+                        container.putExtra("memoryDefense", cbMemoryDefense.isChecked() ? "1" : "0");
+                    }
                     container.setFullscreenStretched(fullscreenStretched);
                     container.setExclusiveXInput(exclusiveXInput);
                     container.setInputType(finalInputType);
@@ -858,6 +867,9 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
                     JSONObject extraData = new JSONObject();
                     if (spFrameGen != null) {
                         extraData.put("graphicsFrameGen", String.valueOf(spFrameGen.getSelectedItemPosition()));
+                    }
+                    if (cbMemoryDefense != null) {
+                        extraData.put("memoryDefense", cbMemoryDefense.isChecked() ? "1" : "0");
                     }
                     data.put("extraData", extraData);
 

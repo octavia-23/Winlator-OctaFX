@@ -32,6 +32,7 @@
         android:theme="@style/AppTheme"
         android:appCategory="game"
         android:isGame="true"
+        android:largeHeap="true"
         android:allowBackup="false"
         android:allowAudioPlaybackCapture="true"
         android:hardwareAccelerated="true"

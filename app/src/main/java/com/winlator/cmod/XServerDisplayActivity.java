@@ -436,6 +436,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         containerManager.activateContainer(container);
 
+        String memDefense = container != null ? container.getExtra("memoryDefense", "1") : "1";
+        if (!"0".equals(memDefense)) {
+            ProcessHelper.applyMemoryAndOOMProtection(0);
+            ProcessHelper.lockCriticalMemory();
+        }
+
         if (shortcutPath != null && !shortcutPath.isEmpty()) {
             shortcut = new Shortcut(container, new File(shortcutPath));
         }
@@ -954,6 +960,26 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
         super.onDestroy();
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        Log.w("MemoryDefense", "onTrimMemory received level: " + level);
+        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            System.gc();
+            System.runFinalization();
+            ProcessHelper.purgeStaleCaches();
+        }
+    }
+
+    @Override
+    public void onLowMemory() {
+        super.onLowMemory();
+        Log.e("MemoryDefense", "onLowMemory triggered! Purging stale memory caches.");
+        System.gc();
+        System.runFinalization();
+        ProcessHelper.purgeStaleCaches();
     }
 
     @Override

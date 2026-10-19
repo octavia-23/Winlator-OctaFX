@@ -33,7 +33,14 @@ Configurable per-container in **Container Settings** and on the fly via the **In
 * **Frame-Time Micro-Pacing**: Calculates rolling frame interval averages ($T$). Synthesized intermediate frames are presented at $T / 2$ followed by the native frame, ensuring jitter-free, consistent 60–120 FPS motion on high-refresh AMOLED panels.
 * **Strict Swapchain Synchronization**: Guarantees client swapchain synchronization fences are retired only after display scanout, preventing frame tearing and buffer overwrite artifacts.
 
-### 3. Snapdragon 8s Gen 3 Hardware Optimization
+### 3. Aggressive RAM Defense & OOM Immunity (8GB RAM Optimization)
+On 8GB devices like the POCO F6, heavy AAA titles combined with Android background services often cause memory pressure to spike beyond 90%, causing Android's LowMemoryKiller (`lmkd`) to suddenly kill the emulator process.
+* **Native OOM Score Tuning**: Adjusts container process `oom_score_adj` down to `-1000`, granting the emulation and rendering threads top-priority immunity against `lmkd` kills.
+* **Proactive Memory Compactor**: Intercepts Android OS trim signals (`onTrimMemory` / `onLowMemory`) and immediately triggers bionic `mallopt(M_PURGE)` to scavenge and release idle memory arenas back to the Linux kernel before OOM panics occur.
+* **Kernel Page Advice**: Applies `MADV_HUGEPAGE` and `MADV_WILLNEED` on critical Wine and DXVK translation mappings while setting timer slack to 50µs for micro-stutter-free execution.
+* **Large Heap Allocation (`android:largeHeap="true"`)**: Grants the Java host layer expanded heap capacity to handle high-resolution texture streaming without memory crashes.
+
+### 4. Snapdragon 8s Gen 3 Hardware Optimization
 * **Direct Compatibility with Custom Turnip Drivers**: Tuned specifically for the Adreno 735 / SM8635 graphics pipeline. Pair with our dedicated driver release: [Turnip Adreno 735 Driver for POCO F6](https://github.com/octavia-23/turnip-adreno735-pocof6).
 * **Bionic libc Integration**: Standard Android Bionic runtime integration for optimal memory allocation and thread scheduling.
 * **Permanent Release Keystore**: Built with persistent cryptographic signing (V1 + V2 schemes), preventing package signature mismatch errors across updates.
@@ -49,6 +56,7 @@ For the best balance of compatibility, high framerates, and sustained thermals:
 | **Driver** | Custom Turnip (Adreno 735 v1.3.1) | Full hardware Vulkan 1.3 compliance with optimized KGSL hooks |
 | **DXVK Version** | DXVK 2.4 or 2.3.1 | Stable Direct3D 11 to Vulkan translation |
 | **Frame Generation** | Mode 2 (Qualcomm Hexagon NPU) | 2x visual smoothness at ~0.5W power draw |
+| **RAM Defense** | Enabled (Default) | Grants OOM immunity and prevents `lmkd` crashes |
 | **Box64 / FEX Preset** | Performance (x86_64) / 2507 (ARM64EC) | Maximum CPU instruction translation throughput |
 | **Audio Driver** | PulseAudio or AAudio Native | Lowest latency audio stream |
 

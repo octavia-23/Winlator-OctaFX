@@ -17,6 +17,40 @@ import java.util.List;
 import java.util.concurrent.Executors;
 
 public abstract class ProcessHelper {
+    static {
+        try {
+            System.loadLibrary("winlator");
+        } catch (Throwable t) {
+            Log.w("ProcessHelper", "Failed to load winlator library in ProcessHelper", t);
+        }
+    }
+
+    public static native int nativeSetProcessAffinity(int pid, int mask);
+    public static native int nativeGetProcessAffinity(int pid);
+    public static native int nativeApplyMemoryProtection(int pid);
+    public static native void nativePurgeMemory();
+    public static native void nativeLockCriticalMemory();
+
+    public static void applyMemoryAndOOMProtection(int pid) {
+        try {
+            nativeApplyMemoryProtection(pid);
+        } catch (Throwable t) {
+            Log.w("ProcessHelper", "Failed to apply memory protection to PID: " + pid, t);
+        }
+    }
+
+    public static void purgeStaleCaches() {
+        try {
+            nativePurgeMemory();
+        } catch (Throwable ignored) {}
+    }
+
+    public static void lockCriticalMemory() {
+        try {
+            nativeLockCriticalMemory();
+        } catch (Throwable ignored) {}
+    }
+
     public static final boolean PRINT_DEBUG = true; // FIXME change to false
     private static final ArrayList<Callback<String>> debugCallbacks = new ArrayList<>();
     private static final byte SIGCONT = 18;
@@ -109,6 +143,7 @@ public abstract class ProcessHelper {
             pid = pidField.getInt(process);
             pidField.setAccessible(false);
             Log.d("ProcessHelper", "Process started with pid: " + pid);
+            applyMemoryAndOOMProtection(pid);
 
             if (!debugCallbacks.isEmpty()) {
                 createDebugThread(process.getInputStream());
