@@ -69,11 +69,19 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew assembleRelease
 
+      - name: Prepare APK Release Artifact
+        run: |
+          mkdir -p release-output
+          APK_FILE=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
+          echo "Found APK: $APK_FILE"
+          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.0.0.apk
+          ls -lh release-output/
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Winlator-OctaFX-v1.0.0
-          path: app/build/outputs/apk/release/*.apk
+          path: release-output/Winlator-OctaFX-v1.0.0.apk
           if-no-files-found: error
 
       - name: Publish to GitHub Releases
@@ -89,6 +97,6 @@ jobs:
             - **Native Vulkan Frame Generation**: In-engine bidirectional compute frame interpolation.
             - **Bionic libc Architecture**: Direct Android libc bindings with zero GNU glibc overhead.
             - **DisplayX Direct SurfaceControl**: Lowest possible presentation latency on modern Android.
-          files: app/build/outputs/apk/release/*.apk
+          files: release-output/Winlator-OctaFX-v1.0.0.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
