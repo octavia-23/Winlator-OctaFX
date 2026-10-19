@@ -4,11 +4,11 @@
   <img src="logo.png" alt="Winlator Bionic" width="600">
 </p>
 
-# Winlator Bionic
+# Winlator OctaFX
 
-Winlator is an Android application that lets you run Windows (x86\_64) applications with Wine. It supports standard `x86_64` containers using Box86/Box64, as well as `Arm64EC` containers which utilize FEXCore (for 64/32-bit) or an optional WowBox64 (for 32-bit).
+Winlator OctaFX is an ultra-high performance Android application designed to run Windows (x86_64) applications on ARM64 using Bionic libc, integrated native Vulkan Frame Generation, and Snapdragon 8s Gen 3 hardware architecture tuning.
 
-This is a fork of the **Winlator Bionic** project by [Pipetto-crypto](https://github.com/Pipetto-crypto/winlator).
+Based on **Winlator Bionic** by [Pipetto-crypto](https://github.com/Pipetto-crypto/winlator) and [StevenMXZ](https://github.com/StevenMXZ/Winlator-Ludashi).
 
 ## APK Build Explanations
 
