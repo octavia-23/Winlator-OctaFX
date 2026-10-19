@@ -500,7 +500,7 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
         final Spinner spFrameGen = view.findViewById(R.id.SFrameGen);
         if (spFrameGen != null) {
             ArrayAdapter<String> frameGenAdapter = new ArrayAdapter<>(context, R.layout.spinner_item_amoled,
-                    new String[]{"Off", "2x Interpolation (OctaFX)"});
+                    new String[]{"Off", "GPU Interpolation (Vulkan)", "Qualcomm Hexagon NPU (HTP)"});
             frameGenAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_amoled_compact);
             spFrameGen.setAdapter(frameGenAdapter);
             String savedFG = isEditMode() ? container.getExtra("graphicsFrameGen") : "0";
@@ -508,7 +508,7 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
             if (!savedFG.isEmpty()) {
                 try { fgPos = Integer.parseInt(savedFG); } catch (Exception ignored) {}
             }
-            spFrameGen.setSelection(Math.max(0, Math.min(fgPos, 1)));
+            spFrameGen.setSelection(Math.max(0, Math.min(fgPos, 2)));
         }
 
         Spinner sAudioDriver = view.findViewById(R.id.SAudioDriver);

@@ -703,3 +703,14 @@ Java_com_winlator_cmod_widget_XServerView_nativeIsFrameGenEnabled(JNIEnv *env, j
     return effectComposer.isFrameGenEnabled();
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_winlator_cmod_widget_XServerView_nativeSetFrameGenMode(JNIEnv *env, jclass obj, jint mode) {
+    effectComposer.setFrameGenMode(mode);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_winlator_cmod_widget_XServerView_nativeGetFrameGenMode(JNIEnv *env, jclass obj) {
+    return effectComposer.getFrameGenMode();
+}
+
+

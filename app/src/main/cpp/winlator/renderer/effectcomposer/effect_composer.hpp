@@ -8,6 +8,7 @@
 #include "drawable.hpp"
 #include "renderer_jni.hpp"
 #include "vulkan.hpp"
+#include "npu_frame_interpolator.hpp"
 
 class EffectComposer {
     private:
@@ -112,7 +113,8 @@ class EffectComposer {
         VulkanTable dispatchTable;
         
         bool colorSwapEnabled = false;
-        bool frameGenEnabled = false;
+        int frameGenMode = FRAME_GEN_OFF;
+        std::unique_ptr<NPUFrameInterpolator> npuInterpolator;
         bool initialized = false;
         std::atomic_bool isOperationPending{false};
         
@@ -121,6 +123,7 @@ class EffectComposer {
         VkResult createDevice();
         VkResult createPipelines();
         void swapColors(Drawable *drawable);
+        void vulkanInterpolate(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer);
         
   public:      
         VkResult createComposerTexture(Drawable *drawable);
@@ -131,9 +134,12 @@ class EffectComposer {
         bool isColorSwapEnabled();
         void setFrameGenEnabled(bool enabled);
         bool isFrameGenEnabled();
+        void setFrameGenMode(int mode);
+        int getFrameGenMode();
         void generateFrame(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer);
         bool isEnabled();
         bool isSuitableForColorSwap(Drawable *drawable);
         bool isPending();
 };
+
 

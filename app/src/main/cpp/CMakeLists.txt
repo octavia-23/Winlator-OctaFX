@@ -32,6 +32,7 @@ add_library(winlator SHARED
         winlator/renderer/view_transformation.cpp
         winlator/renderer/displayx.cpp
         winlator/renderer/effectcomposer/effect_composer.cpp
+        winlator/renderer/effectcomposer/npu_frame_interpolator.cpp
 )
 
 target_compile_options(winlator PRIVATE -Wall -Wextra)
@@ -48,6 +49,7 @@ target_link_libraries(winlator
         GLESv3
         adrenotools
         vulkan
+        dl
 )
 
 # Add Fake Input library for controller emulation (loaded via LD_PRELOAD)

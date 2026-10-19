@@ -2037,7 +2037,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (lblSharpnessHeader != null) lblSharpnessHeader.setVisibility(sharpVis);
         if (sbSharpness        != null) sbSharpness.setVisibility(sharpVis);
 
-        final String[] frameGenLabels = {"Off", "2x Interpolation (OctaFX)"};
+        final String[] frameGenLabels = {"Off", "GPU Interpolation (Vulkan)", "Qualcomm Hexagon NPU (HTP)"};
         if (spFrameGenFPS != null) {
             ArrayAdapter<String> a = createSidebarSpinnerAdapter(frameGenLabels);
             a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -2048,12 +2048,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
             if (initFrameGen < 0 || initFrameGen >= frameGenLabels.length) initFrameGen = 0;
             spFrameGenFPS.setSelection(initFrameGen, false);
 
-            if (nativeRenderer != null) nativeRenderer.nativeSetFrameGenEnabled(initFrameGen > 0);
+            if (nativeRenderer != null) nativeRenderer.nativeSetFrameGenMode(initFrameGen);
 
             spFrameGenFPS.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
-                    boolean enabled = (pos > 0);
-                    if (nativeRenderer != null) nativeRenderer.nativeSetFrameGenEnabled(enabled);
+                    if (nativeRenderer != null) nativeRenderer.nativeSetFrameGenMode(pos);
                     if (container != null) {
                         container.putExtra("graphicsFrameGen", String.valueOf(pos));
                         container.saveData();

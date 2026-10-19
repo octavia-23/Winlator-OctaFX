@@ -472,6 +472,47 @@ void DisplayX::onCompleteCallback(void *context, ASurfaceTransactionStats *stats
     }
 }
 
+void DisplayX::ensureFrameGenBuffers(int width, int height) {
+    if (frameGenBuffers[0] && frameGenBufferWidth == width && frameGenBufferHeight == height) {
+        return;
+    }
+    releaseFrameGenBuffers();
+
+    AHardwareBuffer_Desc desc{};
+    desc.width = width;
+    desc.height = height;
+    desc.layers = 1;
+    desc.format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+    desc.usage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE |
+                 AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT |
+                 AHARDWAREBUFFER_USAGE_COMPOSER_OVERLAY |
+                 AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN |
+                 AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN;
+
+    int res0 = AHardwareBuffer_allocate(&desc, &frameGenBuffers[0]);
+    int res1 = AHardwareBuffer_allocate(&desc, &frameGenBuffers[1]);
+    if (res0 == 0 && res1 == 0) {
+        frameGenBufferWidth = width;
+        frameGenBufferHeight = height;
+        printf("DisplayX FrameGen: Allocated dual intermediate AHardwareBuffers (%dx%d)", width, height);
+    } else {
+        printf("DisplayX FrameGen: Failed to allocate intermediate AHardwareBuffers (res0=%d, res1=%d)", res0, res1);
+        releaseFrameGenBuffers();
+    }
+}
+
+void DisplayX::releaseFrameGenBuffers() {
+    for (int i = 0; i < 2; i++) {
+        if (frameGenBuffers[i]) {
+            AHardwareBuffer_release(frameGenBuffers[i]);
+            frameGenBuffers[i] = nullptr;
+        }
+    }
+    frameGenBufferWidth = 0;
+    frameGenBufferHeight = 0;
+    prevFrameGenDrawable = nullptr;
+}
+
 void DisplayX::presentThreadLoop() {
     ASurfaceTransaction *presentTransaction = pfnASurfaceTransactionCreate();
     
@@ -527,6 +568,34 @@ void DisplayX::presentThreadLoop() {
                 pfnASurfaceTransactionSetBuffer(presentTransaction, window->control, nullptr, presentRequest->sync_fence);
             }
             else {
+                int fgMode = effectComposer ? effectComposer->getFrameGenMode() : 0;
+                if (fgMode > 0 && drawable->ahb && drawable->width > 0 && drawable->height > 0) {
+                    ensureFrameGenBuffers(drawable->width, drawable->height);
+                    if (frameGenBuffers[0] && prevFrameGenDrawable && prevFrameGenDrawable->ahb && prevFrameGenDrawable != drawable) {
+                        auto now = std::chrono::steady_clock::now();
+                        int64_t elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFrameGenPresentTime).count();
+                        if (elapsedMs >= 4 && elapsedMs <= 100) {
+                            smoothedFrameIntervalMs = (smoothedFrameIntervalMs * 3 + static_cast<int>(elapsedMs)) / 4;
+                        }
+                        lastFrameGenPresentTime = now;
+
+                        AHardwareBuffer *interBuffer = frameGenBuffers[frameGenBufferIdx];
+                        frameGenBufferIdx = (frameGenBufferIdx + 1) % 2;
+
+                        effectComposer->generateFrame(prevFrameGenDrawable, drawable, interBuffer);
+
+                        pfnASurfaceTransactionSetBuffer(presentTransaction, window->control, interBuffer, -1);
+                        pfnASurfaceTransactionSetBufferTransparency(presentTransaction, window->control, ASURFACE_TRANSACTION_TRANSPARENCY_OPAQUE);
+                        pfnASurfaceTransactionApply(presentTransaction);
+
+                        int paceSleepMs = std::clamp(smoothedFrameIntervalMs / 2, 4, 30);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(paceSleepMs));
+                    } else {
+                        lastFrameGenPresentTime = std::chrono::steady_clock::now();
+                    }
+                    prevFrameGenDrawable = drawable;
+                }
+
                 if (effectComposer->isSuitableForColorSwap(drawable)) {
                     pfnASurfaceTransactionSetBuffer(presentTransaction, window->control, drawable->composerTexture->dstBuffer, presentRequest->sync_fence);
                 }
@@ -608,6 +677,7 @@ void DisplayX::stop() {
     stopped = true;
     eventLock.notify();
     presentLock.notify();
+    releaseFrameGenBuffers();
 }
 
 void DisplayX::pause() {

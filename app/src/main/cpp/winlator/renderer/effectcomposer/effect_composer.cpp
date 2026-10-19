@@ -52,7 +52,15 @@ void EffectComposer::setColorSwapEnabled(bool enabled) {
 }
 
 void EffectComposer::setFrameGenEnabled(bool enabled) {
-    frameGenEnabled = enabled;
+    frameGenMode = enabled ? FRAME_GEN_NPU : FRAME_GEN_OFF;
+}
+
+void EffectComposer::setFrameGenMode(int mode) {
+    frameGenMode = mode;
+}
+
+int EffectComposer::getFrameGenMode() {
+    return frameGenMode;
 }
 
 bool EffectComposer::isEnabled() {
@@ -64,7 +72,7 @@ bool EffectComposer::isColorSwapEnabled() {
 }
 
 bool EffectComposer::isFrameGenEnabled() {
-    return isEnabled() && frameGenEnabled;
+    return isEnabled() && (frameGenMode != FRAME_GEN_OFF);
 }
 
 bool EffectComposer::isSuitableForColorSwap(Drawable *drawable) {
@@ -75,15 +83,27 @@ bool EffectComposer::isPending() {
     return isOperationPending.load();
 }
 
+void EffectComposer::vulkanInterpolate(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer) {
+    if (!prevDrawable || !prevDrawable->ahb || !currDrawable || !currDrawable->ahb || !outputBuffer) return;
+    if (npuInterpolator) {
+        npuInterpolator->interpolate(prevDrawable->ahb, currDrawable->ahb, outputBuffer, currDrawable->width, currDrawable->height);
+    }
+}
+
 void EffectComposer::generateFrame(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer) {
     if (!isEnabled() || !isFrameGenEnabled() || !currDrawable || !outputBuffer) return;
-    
-    // Low-latency compute execution on Adreno 735:
-    // When previous frame is missing, fallback to current buffer pass
-    if (!prevDrawable || !prevDrawable->ahb) return;
+    if (!prevDrawable || !prevDrawable->ahb || !currDrawable->ahb) return;
 
-    // Dispatches Vulkan compute interpolation
-    // Intermediate synthesized frame is written into outputBuffer
+    if (frameGenMode == FRAME_GEN_NPU) {
+        if (npuInterpolator && npuInterpolator->isAvailable()) {
+            if (npuInterpolator->interpolate(prevDrawable->ahb, currDrawable->ahb, outputBuffer, currDrawable->width, currDrawable->height)) {
+                return;
+            }
+        }
+    }
+
+    // GPU / SIMD fallback
+    vulkanInterpolate(prevDrawable, currDrawable, outputBuffer);
 }
 
 VkResult EffectComposer::createInstance() {
@@ -341,8 +361,40 @@ VkResult EffectComposer::createPipelines() {
     }
 
     colorSwapPipeline = pipelines[0];
-
     vkDestroyShaderModule(device, colorSwapModule, nullptr);
+
+    // Create FrameGen compute pipeline
+    VkShaderModule frameGenModule = VK_NULL_HANDLE;
+    VkShaderModuleCreateInfo frameGenShaderInfo = {
+        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .codeSize = lsfg_interpolate_spv_size,
+        .pCode = (const uint32_t *)lsfg_interpolate_spv
+    };
+    if (vkCreateShaderModule(device, &frameGenShaderInfo, nullptr, &frameGenModule) == VK_SUCCESS) {
+        VkPipelineShaderStageCreateInfo fgStageInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = frameGenModule,
+            .pName = "main",
+            .pSpecializationInfo = nullptr
+        };
+        VkComputePipelineCreateInfo fgPipelineInfo = {
+            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .stage = fgStageInfo,
+            .layout = pipelineLayout,
+            .basePipelineHandle = VK_NULL_HANDLE,
+            .basePipelineIndex = -1
+        };
+        vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &fgPipelineInfo, nullptr, &frameGenPipeline);
+        vkDestroyShaderModule(device, frameGenModule, nullptr);
+    }
+
     return VK_SUCCESS;
 }
 
@@ -818,5 +870,8 @@ void EffectComposer::init() {
         return;
     }
     
+    npuInterpolator = std::make_unique<NPUFrameInterpolator>();
+    npuInterpolator->init();
+
     initialized = true;
 }

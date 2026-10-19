@@ -142,6 +142,18 @@ class DisplayX {
         int eventsPending = 0;
         int64_t previousReportedWorkTime = 0;
         AVsyncId vsyncId = -1;
+
+        // Frame Generation intermediate presentation buffers & pacing
+        AHardwareBuffer *frameGenBuffers[2] = {nullptr, nullptr};
+        int frameGenBufferIdx = 0;
+        int frameGenBufferWidth = 0;
+        int frameGenBufferHeight = 0;
+        Drawable *prevFrameGenDrawable = nullptr;
+        std::chrono::steady_clock::time_point lastFrameGenPresentTime;
+        int smoothedFrameIntervalMs = 16;
+
+        void ensureFrameGenBuffers(int width, int height);
+        void releaseFrameGenBuffers();
         
         void eventThreadLoop();
         void networkThreadLoop();

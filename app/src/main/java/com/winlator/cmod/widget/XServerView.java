@@ -368,4 +368,8 @@ public class XServerView extends XServerRendererView implements SurfaceHolder.Ca
     public native void nativeSetFrameGenEnabled(boolean enabled);
     @FastNative
     public native boolean nativeIsFrameGenEnabled();
+    @FastNative
+    public native void nativeSetFrameGenMode(int mode);
+    @FastNative
+    public native int nativeGetFrameGenMode();
 }
