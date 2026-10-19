@@ -877,8 +877,31 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/processor_affinity"
+                    android:text="CPU Topology &amp; SoC Affinity Preset"
+                    android:textStyle="bold"
                     android:layout_marginTop="8dp" />
+
+                <Spinner
+                    android:id="@+id/SSoCAffinityPreset"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" />
+
+                <TextView
+                    android:id="@+id/TVSoCAffinityDesc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Optimized for detected chipset"
+                    android:textSize="12sp"
+                    android:textColor="#88FFFFFF"
+                    android:layout_marginTop="2dp"
+                    android:layout_marginBottom="6dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/processor_affinity"
+                    android:layout_marginTop="4dp" />
 
                 <CheckBox
                     android:id="@+id/CBSyncCpuTopology"

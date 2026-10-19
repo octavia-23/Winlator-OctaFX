@@ -681,6 +681,12 @@ public class Container {
     }
 
     public static String getFallbackCPUList() {
+        try {
+            com.winlator.cmod.core.SoCDetector.Preset preset = com.winlator.cmod.core.SoCDetector.getDetectedPreset();
+            if (preset != null && preset.cpuList64 != null && !preset.cpuList64.isEmpty()) {
+                return preset.cpuList64;
+            }
+        } catch (Throwable ignored) {}
         String cpuList = "";
         int numProcessors = Runtime.getRuntime().availableProcessors();
         for (int i = 0; i < numProcessors; i++) cpuList += (!cpuList.isEmpty() ? "," : "")+i;
@@ -688,6 +694,12 @@ public class Container {
     }
 
     public static String getFallbackCPUListWoW64() {
+        try {
+            com.winlator.cmod.core.SoCDetector.Preset preset = com.winlator.cmod.core.SoCDetector.getDetectedPreset();
+            if (preset != null && preset.cpuList32 != null && !preset.cpuList32.isEmpty()) {
+                return preset.cpuList32;
+            }
+        } catch (Throwable ignored) {}
         String cpuList = "";
         int numProcessors = Runtime.getRuntime().availableProcessors();
         for (int i = numProcessors / 2; i < numProcessors; i++) cpuList += (!cpuList.isEmpty() ? "," : "")+i;

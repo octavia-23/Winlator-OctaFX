@@ -42,9 +42,11 @@ public class DXVKConfigDialog extends ContentDialog {
     private final ToggleButton swAsync;
     private boolean isARM64EC = false;
     private final ToggleButton swAsyncCache;
+    private final ToggleButton swZstdPipelineCache;
     private final ToggleButton swMaxFrameLatency;
     private final View llAsync;
     private final View llAsyncCache;
+    private final View llZstdPipelineCache;
     private final Context context;
     private final ContentInstallHost installHost;
     private final ContentsManager contentsManager;
@@ -103,9 +105,30 @@ public class DXVKConfigDialog extends ContentDialog {
         final Spinner sDDRAWrapper = findViewById(R.id.SDDRAWrapper);
         swAsync = findViewById(R.id.SWAsync);
         swAsyncCache = findViewById(R.id.SWAsyncCache);
+        swZstdPipelineCache = findViewById(R.id.SWZstdPipelineCache);
         swMaxFrameLatency = findViewById(R.id.SWMaxFrameLatency);
         llAsync = findViewById(R.id.LLAsync);
         llAsyncCache = findViewById(R.id.LLAsyncCache);
+        llZstdPipelineCache = findViewById(R.id.LLZstdPipelineCache);
+
+        final TextView tvZstdCacheSize = findViewById(R.id.TVZstdCacheSize);
+        final View btClearZstdCache = findViewById(R.id.BTClearZstdCache);
+
+        Runnable refreshCacheSize = () -> {
+            if (tvZstdCacheSize != null) {
+                long size = com.winlator.cmod.core.DXVKPipelineCacheManager.getCacheSize(context);
+                tvZstdCacheSize.setText("State Cache: " + (size / 1024) + " KB");
+            }
+        };
+        refreshCacheSize.run();
+
+        if (btClearZstdCache != null) {
+            btClearZstdCache.setOnClickListener(v -> {
+                com.winlator.cmod.core.DXVKPipelineCacheManager.clearCache(context);
+                refreshCacheSize.run();
+                AppUtils.showToast(context, "DXVK state cache purged");
+            });
+        }
 
         this.contentsManager.syncContents();
 
@@ -138,6 +161,8 @@ public class DXVKConfigDialog extends ContentDialog {
 
         swAsync.setChecked(config.get("async").equals("1"));
         swAsyncCache.setChecked(config.get("asyncCache").equals("1"));
+        String zstdCacheVal = config.get("zstdCache");
+        swZstdPipelineCache.setChecked(!"0".equals(zstdCacheVal));
         swMaxFrameLatency.setChecked(config.get("maxFrameLatency").equals("1"));
 
         updateConfigVisibility(getDXVKType(sDXVKVersion.getSelectedItemPosition()));
@@ -236,6 +261,7 @@ public class DXVKConfigDialog extends ContentDialog {
             config.put("framerate", StringUtils.parseNumber(sFramerate.getSelectedItem()));
             config.put("async", ((swAsync.isChecked())&&(llAsync.getVisibility()==View.VISIBLE))?"1":"0");
             config.put("asyncCache", ((swAsyncCache.isChecked())&&(llAsyncCache.getVisibility()==View.VISIBLE))?"1":"0");
+            config.put("zstdCache", swZstdPipelineCache.isChecked() ? "1" : "0");
             config.put("maxFrameLatency", swMaxFrameLatency.isChecked()?"1":"0");
             VKD3DVersionItem selectedItem = (VKD3DVersionItem) sVKD3DVersion.getSelectedItem();
             config.put("vkd3dVersion", selectedItem.getIdentifier());
@@ -334,10 +360,20 @@ public class DXVKConfigDialog extends ContentDialog {
         if (!asyncCache.isEmpty() && !asyncCache.equals("0"))
             envVars.put("DXVK_GPLASYNCCACHE", "1");
 
+        String zstdCache = config.get("zstdCache");
+        if (!"0".equals(zstdCache)) {
+            if (!content.isEmpty()) content += "; ";
+            content += "dxvk.enableStateCache = True";
+            try {
+                com.winlator.cmod.core.DXVKPipelineCacheManager.restoreCompressedCaches(context);
+            } catch (Throwable ignored) {}
+        }
+
         if (!content.isEmpty())
             envVars.put("DXVK_CONFIG", content);
 
         envVars.put("VKD3D_FEATURE_LEVEL", config.get("vkd3dLevel"));
+        envVars.put("DXVK_STATE_CACHE", !"0".equals(zstdCache) ? "1" : "0");
         envVars.put("DXVK_STATE_CACHE_PATH", context.getFilesDir() + "/imagefs/" + ImageFs.CACHE_PATH);
     }
 

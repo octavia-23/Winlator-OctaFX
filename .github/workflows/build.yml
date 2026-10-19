@@ -74,29 +74,29 @@ jobs:
           mkdir -p release-output
           APK_FILE=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
           echo "Found APK: $APK_FILE"
-          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.0.3.apk
+          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.0.4.apk
           ls -lh release-output/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Winlator-OctaFX-v1.0.3
-          path: release-output/Winlator-OctaFX-v1.0.3.apk
+          name: Winlator-OctaFX-v1.0.4
+          path: release-output/Winlator-OctaFX-v1.0.4.apk
           if-no-files-found: error
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/4.1'
         with:
-          tag_name: v1.0.3-OctaFX
-          name: "Winlator-OctaFX v1.0.3 (Aggressive RAM Defense & OOM Immunity)"
+          tag_name: v1.0.4-OctaFX
+          name: "Winlator-OctaFX v1.0.4 (Auto SoC Topology Pinning & DXVK Zstd Pre-Cache)"
           body: |
-            Winlator-OctaFX v1.0.3:
-            - **Aggressive RAM Defense (LMK / OOM Immunity)**: Native `oom_score_adj` tuning (-1000) protects Wine, DXVK, and emulation processes from being killed by Android's LowMemoryKiller (LMKD) during heavy gaming.
-            - **Proactive Memory Compactor**: Hooks into Android memory trim signals (`onTrimMemory` / `onLowMemory`) and triggers bionic `mallopt(M_PURGE)` to scavenge and release idle memory arenas back to the Linux kernel before OOM panics occur.
-            - **Kernel Memory Optimization**: Transparent hugepage advice (`MADV_HUGEPAGE`) and timer slack tuning (50µs) for ultra-consistent, micro-stutter-free game execution.
-            - **Large Heap Allocation (`android:largeHeap="true"`)**: Expands addressable runtime heap to prevent OutOfMemory crashes during high-resolution texture streaming.
-            - **Qualcomm Hexagon NPU AI Frame Generation**: Preserves all HTP v75 NPU offloading features from v1.0.2.
-          files: release-output/Winlator-OctaFX-v1.0.3.apk
+            Winlator-OctaFX v1.0.4:
+            - **Intelligent SoC Detection & Topology Pinning**: Automatically detects host chipset (Qualcomm Snapdragon 8s Gen 3, 8 Gen 3, 8 Gen 2, 8 Gen 1/888, 870/865, Dimensity 9300/9400, etc.) and auto-configures optimal CPU affinity masks.
+            - **POCO F6 (Snapdragon 8s Gen 3 / SM8635) Optimization**: Prioritizes Prime Cortex-X4 (Core 7) + Performance Cortex-A720 (Cores 3-6) while completely masking out weak Cortex-A520 efficiency cores (Cores 0-2).
+            - **DXVK / VKD3D Pipeline Pre-Cache (Zstandard)**: Instant zero-stutter shader and pipeline state loading with real-time level-3 Zstd compression. Drastically shrinks cache disk usage while preserving compiled Vulkan pipelines across game sessions.
+            - **State Cache Management UI**: Added real-time cache size reporting and one-click "Purge Cache" inside DXVK Configuration Dialog.
+            - **Aggressive RAM Defense & OOM Immunity**: Preserves all v1.0.3 LMKD protection, `oom_score_adj -1000`, `mallopt(M_PURGE)` memory compaction, and Qualcomm Hexagon NPU Frame Generation.
+          files: release-output/Winlator-OctaFX-v1.0.4.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

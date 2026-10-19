@@ -134,6 +134,59 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/LLZstdPipelineCache"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_weight="1"
+                android:text="Pipeline Pre-Cache (Zstd)" />
+
+            <ToggleButton
+                android:id="@+id/SWZstdPipelineCache"
+                android:layout_width="64dp"
+                android:layout_height="32dp"
+                android:background="@drawable/toggle_button_selector"
+                android:textOn=""
+                android:textOff="" />
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/LLZstdCacheActions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/TVZstdCacheSize"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_weight="1"
+                android:text="State Cache: 0 KB"
+                android:textSize="12sp"
+                android:textColor="#88FFFFFF" />
+
+            <Button
+                android:id="@+id/BTClearZstdCache"
+                style="@style/Button"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:textSize="11sp"
+                android:text="Purge Cache" />
+
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/LLMaxFrameLatency"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

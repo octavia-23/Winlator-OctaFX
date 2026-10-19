@@ -675,6 +675,25 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
         sGraphicsDriver.setAdapter(graphicsDriverAdapter);
         AppUtils.setSpinnerSelectionFromValue(sGraphicsDriver, selectedDriver);
 
+        final Spinner sSoCAffinityPreset = view.findViewById(R.id.SSoCAffinityPreset);
+        final TextView tvSoCAffinityDesc = view.findViewById(R.id.TVSoCAffinityDesc);
+        final com.winlator.cmod.core.SoCDetector.Preset[] presets = com.winlator.cmod.core.SoCDetector.Preset.values();
+        String[] presetTitles = new String[presets.length];
+        com.winlator.cmod.core.SoCDetector.Preset detected = com.winlator.cmod.core.SoCDetector.getDetectedPreset();
+        int defaultPresetIndex = 0;
+        for (int i = 0; i < presets.length; i++) {
+            presetTitles[i] = (presets[i] == detected ? "★ [Detected] " : "") + presets[i].title;
+            if (presets[i] == detected) defaultPresetIndex = i;
+        }
+
+        ArrayAdapter<String> socPresetAdapter = new ArrayAdapter<>(context, R.layout.spinner_item_amoled, presetTitles);
+        socPresetAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_amoled);
+        sSoCAffinityPreset.setAdapter(socPresetAdapter);
+        sSoCAffinityPreset.setSelection(defaultPresetIndex);
+        if (tvSoCAffinityDesc != null) {
+            tvSoCAffinityDesc.setText(detected.description);
+        }
+
         final CPUListView cpuListView = view.findViewById(R.id.CPUListView);
         final CPUListView cpuListViewWoW64 = view.findViewById(R.id.CPUListViewWoW64);
         final CheckBox cbSyncCpuTopology = view.findViewById(R.id.CBSyncCpuTopology);
@@ -682,6 +701,27 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
         cpuListView.setCheckedCPUList(isEditMode() ? container.getCPUList(true) : Container.getFallbackCPUList());
         cpuListViewWoW64.setCheckedCPUList(
                 isEditMode() ? container.getCPUListWoW64(true) : Container.getFallbackCPUListWoW64());
+
+        sSoCAffinityPreset.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            private boolean isFirst = true;
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View v, int position, long id) {
+                if (isFirst && isEditMode()) {
+                    isFirst = false;
+                    return;
+                }
+                isFirst = false;
+                com.winlator.cmod.core.SoCDetector.Preset sel = presets[position];
+                if (tvSoCAffinityDesc != null) {
+                    tvSoCAffinityDesc.setText(sel.description);
+                }
+                cpuListView.setCheckedCPUList(sel.cpuList64);
+                cpuListViewWoW64.setCheckedCPUList(sel.cpuList32);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
 
         boolean syncCpuTopology = isEditMode() && container.isSyncCpuTopology();
         cbSyncCpuTopology.setChecked(syncCpuTopology);

@@ -959,6 +959,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
             winlatorLogcatLogger = null;
         }
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
+        try {
+            com.winlator.cmod.core.DXVKPipelineCacheManager.compressAllCaches(this);
+        } catch (Throwable ignored) {}
         super.onDestroy();
     }
 
