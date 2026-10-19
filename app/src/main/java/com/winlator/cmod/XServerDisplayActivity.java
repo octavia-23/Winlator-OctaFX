@@ -1892,8 +1892,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         View    llFrameGenOptions  = findViewById(R.id.LLFrameGenOptions);
         Spinner spFrameGenFPS      = findViewById(R.id.SPFrameGenFPS);
 
-        if (llFrameGenOptions != null) llFrameGenOptions.setVisibility(View.GONE);
-        if (spFrameGenFPS  != null) spFrameGenFPS.setVisibility(View.GONE);
+        if (llFrameGenOptions != null) llFrameGenOptions.setVisibility(View.VISIBLE);
+        if (spFrameGenFPS  != null) spFrameGenFPS.setVisibility(View.VISIBLE);
         if (spColorMode    != null) spColorMode.setVisibility(View.GONE);
         if (llStandardOptions != null) llStandardOptions.setVisibility(isVulkanRenderer ? View.VISIBLE : View.GONE);
         if (btSaveGraphicsPreset != null) btSaveGraphicsPreset.setVisibility(isVulkanRenderer ? View.VISIBLE : View.GONE);
@@ -1922,7 +1922,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
             spNativeFPS.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
                     if (llStandardOptions != null) llStandardOptions.setVisibility(isVulkanRenderer ? View.VISIBLE : View.GONE);
-                    if (llFrameGenOptions != null) llFrameGenOptions.setVisibility(View.GONE);
                     int fpsLimit = pos < fpsValues.length ? fpsValues[pos] : 0;
                     if (vkRenderer != null) vkRenderer.setFpsLimit(fpsLimit);
                     if (nativeRenderer != null) nativeRenderer.setFpsLimit(fpsLimit);
@@ -1940,6 +1939,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 if (container == null) return;
                 container.putExtra("graphicsFpsPreset",
                     String.valueOf(spNativeFPS != null ? spNativeFPS.getSelectedItemPosition() : 0));
+                if (spFrameGenFPS != null) {
+                    container.putExtra("graphicsFrameGen",
+                        String.valueOf(spFrameGenFPS.getSelectedItemPosition()));
+                }
                 if (vkRenderer != null) {
                     container.putExtra("graphicsFilterMode",
                         String.valueOf(swEnableFSR != null && swEnableFSR.isChecked()
@@ -2034,11 +2037,30 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (lblSharpnessHeader != null) lblSharpnessHeader.setVisibility(sharpVis);
         if (sbSharpness        != null) sbSharpness.setVisibility(sharpVis);
 
-        final String[] frameGenLabels = {"2x Interpolation", "Always On"};
+        final String[] frameGenLabels = {"Off", "2x Interpolation (OctaFX)"};
         if (spFrameGenFPS != null) {
             ArrayAdapter<String> a = createSidebarSpinnerAdapter(frameGenLabels);
             a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
             spFrameGenFPS.setAdapter(a);
+
+            String savedFrameGen = container != null ? container.getExtra("graphicsFrameGen") : "";
+            int initFrameGen = savedFrameGen.isEmpty() ? 0 : Integer.parseInt(savedFrameGen);
+            if (initFrameGen < 0 || initFrameGen >= frameGenLabels.length) initFrameGen = 0;
+            spFrameGenFPS.setSelection(initFrameGen, false);
+
+            if (nativeRenderer != null) nativeRenderer.nativeSetFrameGenEnabled(initFrameGen > 0);
+
+            spFrameGenFPS.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                    boolean enabled = (pos > 0);
+                    if (nativeRenderer != null) nativeRenderer.nativeSetFrameGenEnabled(enabled);
+                    if (container != null) {
+                        container.putExtra("graphicsFrameGen", String.valueOf(pos));
+                        container.saveData();
+                    }
+                }
+                @Override public void onNothingSelected(AdapterView<?> p) {}
+            });
         }
 
     }
