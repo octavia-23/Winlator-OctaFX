@@ -1260,11 +1260,24 @@ public class XServerDisplayActivity extends AppCompatActivity {
         String frameGen = container != null ? container.getExtra("graphicsFrameGen", "0") : "0";
         if (shortcut != null) {
             String scFrameGen = shortcut.getExtra("graphicsFrameGen");
-            if (scFrameGen != null && !scFrameGen.isEmpty() && !"0".equals(scFrameGen)) return true;
-            if (shortcut.getUseDisplayX()) return true;
+            if (scFrameGen != null && !scFrameGen.isEmpty()) frameGen = scFrameGen;
         }
         if (!"0".equals(frameGen)) return true;
-        return container != null && container.getUseDisplayX();
+
+        boolean trueDisplayX = (shortcut != null ? shortcut.getTrueDisplayX() : (container != null && container.getTrueDisplayX()));
+        if (trueDisplayX) return true;
+
+        if (shortcut != null) {
+            String v = shortcut.getExtra("useDisplayX", null);
+            if ("0".equals(v)) return false;
+            if ("1".equals(v)) return true;
+        }
+        if (container != null) {
+            String cv = container.getExtra("useDisplayX", null);
+            if ("0".equals(cv)) return false;
+            if ("1".equals(cv)) return true;
+        }
+        return false;
     }
 
     private String getSelectedSurfaceFormat() {
@@ -1928,10 +1941,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
             reshadePanel.setVisibility(isVulkanRenderer ? View.VISIBLE : View.GONE);
         }
         if (postFxDivider != null) {
-            postFxDivider.setVisibility(isVulkanRenderer ? View.VISIBLE : View.GONE);
+            postFxDivider.setVisibility(View.VISIBLE);
         }
         if (postFxOptions != null) {
-            postFxOptions.setVisibility(isVulkanRenderer ? View.VISIBLE : View.GONE);
+            postFxOptions.setVisibility(View.VISIBLE);
         }
 
         final XServerRendererView renderer = xServerView;
@@ -1953,15 +1966,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (llFrameGenOptions != null) llFrameGenOptions.setVisibility(View.VISIBLE);
         if (spFrameGenFPS  != null) spFrameGenFPS.setVisibility(View.VISIBLE);
         if (spColorMode    != null) spColorMode.setVisibility(View.GONE);
-        if (llStandardOptions != null) llStandardOptions.setVisibility(isVulkanRenderer ? View.VISIBLE : View.GONE);
-        if (btSaveGraphicsPreset != null) btSaveGraphicsPreset.setVisibility(isVulkanRenderer ? View.VISIBLE : View.GONE);
-        if (nativeRenderer != null) {
-            if (swEnableFSR        != null) swEnableFSR.setVisibility(View.GONE);
-            if (spUpscalerMode     != null) spUpscalerMode.setVisibility(View.GONE);
-            if (lblSharpnessHeader != null) lblSharpnessHeader.setVisibility(View.GONE);
-            if (sbSharpness        != null) sbSharpness.setVisibility(View.GONE);
-            if (spPostFXMode       != null) spPostFXMode.setVisibility(View.GONE);
-        }
+        if (llStandardOptions != null) llStandardOptions.setVisibility(View.VISIBLE);
+        if (btSaveGraphicsPreset != null) btSaveGraphicsPreset.setVisibility(View.VISIBLE);
 
         final int[]    fpsValues = {0, 30, 60, 90, 120};
         final String[] fpsLabels = {"Off", "30 FPS", "60 FPS", "90 FPS", "120 FPS"};
@@ -1979,54 +1985,45 @@ public class XServerDisplayActivity extends AppCompatActivity {
             if (nativeRenderer != null) nativeRenderer.setFpsLimit(initialFpsLimit);
             spNativeFPS.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
-                    if (llStandardOptions != null) llStandardOptions.setVisibility(isVulkanRenderer ? View.VISIBLE : View.GONE);
                     int fpsLimit = pos < fpsValues.length ? fpsValues[pos] : 0;
                     if (vkRenderer != null) vkRenderer.setFpsLimit(fpsLimit);
                     if (nativeRenderer != null) nativeRenderer.setFpsLimit(fpsLimit);
-                    if (!isVulkanRenderer && container != null) {
+                    if (container != null) {
                         container.putExtra("graphicsFpsPreset", String.valueOf(pos));
                         container.saveData();
+                    }
+                    if (shortcut != null) {
+                        shortcut.putExtra("graphicsFpsPreset", String.valueOf(pos));
+                        shortcut.saveData();
                     }
                 }
                 @Override public void onNothingSelected(AdapterView<?> p) {}
             });
         }
 
-        if (btSaveGraphicsPreset != null) {
-            btSaveGraphicsPreset.setOnClickListener(v -> {
-                if (container == null) return;
-                container.putExtra("graphicsFpsPreset",
-                    String.valueOf(spNativeFPS != null ? spNativeFPS.getSelectedItemPosition() : 0));
-                if (spFrameGenFPS != null) {
-                    container.putExtra("graphicsFrameGen",
-                        String.valueOf(spFrameGenFPS.getSelectedItemPosition()));
-                }
-                if (vkRenderer != null) {
-                    container.putExtra("graphicsFilterMode",
-                        String.valueOf(swEnableFSR != null && swEnableFSR.isChecked()
-                            ? (spUpscalerMode != null ? spUpscalerMode.getSelectedItemPosition() + 2 : 2) : 0));
-                    container.putExtra("graphicsSharpness",
-                        String.valueOf(sbSharpness != null ? sbSharpness.getValue() : 50f));
-                    container.putExtra("graphicsPostFXMode",
-                        String.valueOf(spPostFXMode != null ? spPostFXMode.getSelectedItemPosition() : 0));
-                    container.putExtra("graphicsColorMode", "0");
-                }
-                container.saveData();
-                Toast.makeText(this, "Preset saved", Toast.LENGTH_SHORT).show();
-            });
-        }
-
-        if (vkRenderer == null) return;
-
         final String[] upscalerLabels = {"SGSR", "FSR", "Lanczos 2", "Color Boost"};
         if (spUpscalerMode != null) {
             ArrayAdapter<String> a = createSidebarSpinnerAdapter(upscalerLabels);
             a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
             spUpscalerMode.setAdapter(a);
+            String savedFilter = container != null ? container.getExtra("graphicsFilterMode") : "";
+            int initFilter = 0;
+            if (!savedFilter.isEmpty()) {
+                try {
+                    int fm = Integer.parseInt(savedFilter);
+                    if (fm >= 2 && fm <= 5) initFilter = fm - 2;
+                } catch (NumberFormatException ignored) {}
+            }
+            spUpscalerMode.setSelection(initFilter, false);
             spUpscalerMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
-                    if (swEnableFSR != null && swEnableFSR.isChecked())
-                        vkRenderer.setFilterMode(pos + 2);
+                    if (swEnableFSR != null && swEnableFSR.isChecked()) {
+                        if (vkRenderer != null) vkRenderer.setFilterMode(pos + 2);
+                        if (container != null) {
+                            container.putExtra("graphicsFilterMode", String.valueOf(pos + 2));
+                            container.saveData();
+                        }
+                    }
                 }
                 @Override public void onNothingSelected(AdapterView<?> p) {}
             });
@@ -2036,8 +2033,14 @@ public class XServerDisplayActivity extends AppCompatActivity {
         float  initSharp  = savedSharp.isEmpty() ? 50f : Float.parseFloat(savedSharp);
         if (sbSharpness != null) {
             sbSharpness.setValue(initSharp);
-            vkRenderer.setSharpness(initSharp / 100f);
-            sbSharpness.setOnValueChangeListener((sb, v, isFinal) -> vkRenderer.setSharpness(v / 100f));
+            if (vkRenderer != null) vkRenderer.setSharpness(initSharp / 100f);
+            sbSharpness.setOnValueChangeListener((sb, v, isFinal) -> {
+                if (vkRenderer != null) vkRenderer.setSharpness(v / 100f);
+                if (isFinal && container != null) {
+                    container.putExtra("graphicsSharpness", String.valueOf(v));
+                    container.saveData();
+                }
+            });
         }
 
         Runnable updateSharpnessVis = () -> {
@@ -2054,15 +2057,24 @@ public class XServerDisplayActivity extends AppCompatActivity {
             swEnableFSR.setChecked(fsrOn);
             if (spUpscalerMode != null)
                 spUpscalerMode.setVisibility(fsrOn ? View.VISIBLE : View.GONE);
-            if (fsrOn)
+            if (fsrOn && vkRenderer != null) {
                 vkRenderer.setFilterMode(spUpscalerMode != null
                     ? spUpscalerMode.getSelectedItemPosition() + 2 : 2);
+            }
             swEnableFSR.setOnCheckedChangeListener((btn, checked) -> {
                 if (spUpscalerMode != null)
                     spUpscalerMode.setVisibility(checked ? View.VISIBLE : View.GONE);
-                vkRenderer.setFilterMode(checked
-                    ? (spUpscalerMode != null ? spUpscalerMode.getSelectedItemPosition() + 2 : 2)
-                    : (container != null ? container.getRendererFilterMode() : 0));
+                if (vkRenderer != null) {
+                    vkRenderer.setFilterMode(checked
+                        ? (spUpscalerMode != null ? spUpscalerMode.getSelectedItemPosition() + 2 : 2)
+                        : (container != null ? container.getRendererFilterMode() : 0));
+                }
+                if (container != null) {
+                    container.putExtra("graphicsFilterMode", checked
+                        ? String.valueOf(spUpscalerMode != null ? spUpscalerMode.getSelectedItemPosition() + 2 : 2)
+                        : "0");
+                    container.saveData();
+                }
                 updateSharpnessVis.run();
             });
         }
@@ -2078,22 +2090,22 @@ public class XServerDisplayActivity extends AppCompatActivity {
             if (initPFX < 0 || initPFX >= pfxLabels.length) initPFX = 0;
 
             spPostFXMode.setSelection(initPFX, false);
-            if (initPFX > 0) vkRenderer.setPostFXMode(initPFX);
+            if (initPFX > 0 && vkRenderer != null) vkRenderer.setPostFXMode(initPFX);
 
             spPostFXMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
-                    vkRenderer.setPostFXMode(pos);
+                    if (vkRenderer != null) vkRenderer.setPostFXMode(pos);
+                    if (container != null) {
+                        container.putExtra("graphicsPostFXMode", String.valueOf(pos));
+                        container.saveData();
+                    }
                     updateSharpnessVis.run();
                 }
                 @Override public void onNothingSelected(AdapterView<?> p) {}
             });
         }
 
-        String savedPFXInit = container != null ? container.getExtra("graphicsPostFXMode") : "";
-        boolean dlsRestored = !savedPFXInit.isEmpty() && Integer.parseInt(savedPFXInit) == 1;
-        int sharpVis = (fsrOn || dlsRestored) ? View.VISIBLE : View.GONE;
-        if (lblSharpnessHeader != null) lblSharpnessHeader.setVisibility(sharpVis);
-        if (sbSharpness        != null) sbSharpness.setVisibility(sharpVis);
+        updateSharpnessVis.run();
 
         final String[] frameGenLabels = {"Off", "GPU Interpolation (Vulkan)", "Qualcomm Hexagon NPU (HTP)"};
         if (spFrameGenFPS != null) {
@@ -2102,6 +2114,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
             spFrameGenFPS.setAdapter(a);
 
             String savedFrameGen = container != null ? container.getExtra("graphicsFrameGen") : "";
+            if (shortcut != null) {
+                String scFG = shortcut.getExtra("graphicsFrameGen");
+                if (scFG != null && !scFG.isEmpty()) savedFrameGen = scFG;
+            }
             int initFrameGen = savedFrameGen.isEmpty() ? 0 : Integer.parseInt(savedFrameGen);
             if (initFrameGen < 0 || initFrameGen >= frameGenLabels.length) initFrameGen = 0;
             spFrameGenFPS.setSelection(initFrameGen, false);
@@ -2112,26 +2128,65 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
                     if (container != null) {
                         container.putExtra("graphicsFrameGen", String.valueOf(pos));
-                        if (pos > 0) container.putExtra("useDisplayX", "1");
+                        container.putExtra("useDisplayX", pos > 0 ? "1" : "0");
                         container.saveData();
                     }
                     if (shortcut != null) {
                         shortcut.putExtra("graphicsFrameGen", String.valueOf(pos));
-                        if (pos > 0) shortcut.putExtra("useDisplayX", "1");
+                        shortcut.putExtra("useDisplayX", pos > 0 ? "1" : "0");
                         shortcut.saveData();
                     }
                     if (nativeRenderer != null) {
                         nativeRenderer.nativeSetFrameGenMode(pos);
+                        if (pos == 0) {
+                            Toast.makeText(XServerDisplayActivity.this,
+                                    "Frame Gen turned OFF. Reverting to Vulkan presentation pipeline on next start.",
+                                    Toast.LENGTH_SHORT).show();
+                        }
                     } else if (pos > 0) {
-                        android.widget.Toast.makeText(XServerDisplayActivity.this,
+                        Toast.makeText(XServerDisplayActivity.this,
                                 "Frame Gen enabled! Switched to DisplayX engine. Please restart game session to apply.",
-                                android.widget.Toast.LENGTH_LONG).show();
+                                Toast.LENGTH_LONG).show();
                     }
                 }
                 @Override public void onNothingSelected(AdapterView<?> p) {}
             });
         }
 
+        if (btSaveGraphicsPreset != null) {
+            btSaveGraphicsPreset.setOnClickListener(v -> {
+                if (container == null) return;
+                container.putExtra("graphicsFpsPreset",
+                    String.valueOf(spNativeFPS != null ? spNativeFPS.getSelectedItemPosition() : 0));
+                if (spFrameGenFPS != null) {
+                    int fgPos = spFrameGenFPS.getSelectedItemPosition();
+                    container.putExtra("graphicsFrameGen", String.valueOf(fgPos));
+                    container.putExtra("useDisplayX", fgPos > 0 ? "1" : "0");
+                }
+                container.putExtra("graphicsFilterMode",
+                    String.valueOf(swEnableFSR != null && swEnableFSR.isChecked()
+                        ? (spUpscalerMode != null ? spUpscalerMode.getSelectedItemPosition() + 2 : 2) : 0));
+                container.putExtra("graphicsSharpness",
+                    String.valueOf(sbSharpness != null ? sbSharpness.getValue() : 50f));
+                container.putExtra("graphicsPostFXMode",
+                    String.valueOf(spPostFXMode != null ? spPostFXMode.getSelectedItemPosition() : 0));
+                container.putExtra("graphicsColorMode", "0");
+                container.saveData();
+
+                if (shortcut != null) {
+                    shortcut.putExtra("graphicsFpsPreset",
+                        String.valueOf(spNativeFPS != null ? spNativeFPS.getSelectedItemPosition() : 0));
+                    if (spFrameGenFPS != null) {
+                        int fgPos = spFrameGenFPS.getSelectedItemPosition();
+                        shortcut.putExtra("graphicsFrameGen", String.valueOf(fgPos));
+                        shortcut.putExtra("useDisplayX", fgPos > 0 ? "1" : "0");
+                    }
+                    shortcut.saveData();
+                }
+
+                Toast.makeText(this, "Preset saved", Toast.LENGTH_SHORT).show();
+            });
+        }
     }
 
         private void setupSidebarInputControls() {
