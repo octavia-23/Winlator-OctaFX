@@ -83,30 +83,29 @@ jobs:
           mkdir -p release-output
           APK_FILE=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
           echo "Found APK: $APK_FILE"
-          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.0.6.apk
+          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.0.7.apk
           ls -lh release-output/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Winlator-OctaFX-v1.0.6
-          path: release-output/Winlator-OctaFX-v1.0.6.apk
+          name: Winlator-OctaFX-v1.0.7
+          path: release-output/Winlator-OctaFX-v1.0.7.apk
           if-no-files-found: error
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/4.1'
         with:
-          tag_name: v1.0.6-OctaFX
-          name: "Winlator-OctaFX v1.0.6 (Snapdragon 8s Gen 3 Adreno 735 Dynamic GPU Sensor, Turnip GCM & Shader Cache Boost)"
+          tag_name: v1.0.7-OctaFX
+          name: "Winlator-OctaFX v1.0.7 (Frame Generation Auto-Routing & Active HUD Multiplier)"
           body: |
-            Winlator-OctaFX v1.0.6:
-            - **Dynamic Adreno 735 / Snapdragon 8s Gen 3 GPU Sensor**: Overcomes Qualcomm GMU firmware autonomous power management where host sysfs `gpubusy` returns 0 ticks to unprivileged userland apps on Android 14 / HyperOS. Added recursive platform SoC devfreq traversal and responsive frequency-scaled utilization estimation ($\frac{cur - min}{max - min} \times 100\%$).
-            - **Turnip Persistent 6GB Shader Cache**: Explicitly anchors `MESA_SHADER_CACHE_DIR=/home/xuser/.cache` to persistent container storage across launches and expands `MESA_SHADER_CACHE_MAX_SIZE` to **6144MB** to eliminate shader compilation stutter and cache eviction drops.
-            - **Freedreno IR3 Global Code Motion**: Enables `IR3_SHADER_DEBUG=gcm` to run Global Code Motion optimization in the Turnip compiler backend, hoisting loop invariants and reducing register pressure across Adreno 735 ALUs.
-            - **DXVK Performance Core Pinning**: Dynamically sets `dxvk.numCompilerThreads` based on SoC architecture (5 worker threads on Snapdragon 8s Gen 3 / POCO F6) to prevent shader compilation stalls on slow Cortex-A520 efficiency cores.
-            - **ARMv9 Dynarec Turbo Supercharged**: Upgraded Box64 preset with `BOX64_DYNAREC_WEAKBARRIER=1`, `BOX64_DYNAREC_DIRTY=1`, and expanded dynarec forward lookahead buffer `FORWARD=1024`.
-            - **Full Cumulative Core**: Retains ADPF Sustained Performance, Qualcomm Hexagon NPU AI Frame Generation, Aggressive RAM Defense (`oom_score_adj -1000`), SoC Affinity Masking, and DXVK Zstd Pre-Caching.
-          files: release-output/Winlator-OctaFX-v1.0.6.apk
+            Winlator-OctaFX v1.0.7:
+            - **Frame Generation Auto-Routing**: Automatically switches container and shortcut presentation pipeline to DisplayX when Frame Generation (GPU or Hexagon NPU) is enabled, resolving the issue where Frame Gen was disconnected on the default Vulkan renderer.
+            - **Real-Time Frame Gen HUD Indicator**: HUD now dynamically reflects active frame generation state and reports multiplied 2X framerates: `FPS XX [NPU 2X]` or `FPS XX [GPU 2X]` when active, and raw framerate when Off.
+            - **AHardwareBuffer Lock Fallback**: Implemented CPU read/write lock fallback in NPU Frame Interpolator (`AHARDWAREBUFFER_USAGE_CPU_READ_RARELY`) to guarantee buffer access across all Qualcomm Turnip swapchain configurations.
+            - **In-Game Sidebar Guidance**: Added runtime checks to the in-game sidebar Frame Gen spinner to notify the user if a session restart is required to re-bind the native surface.
+            - **Cumulative Core**: Retains Adreno 735 Dynamic GPU Sensor, Turnip 6GB Shader Cache, IR3 GCM, DXVK 5-core pinning, ARMv9 Turbo, and ADPF Thermal Sustained Performance.
+          files: release-output/Winlator-OctaFX-v1.0.7.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

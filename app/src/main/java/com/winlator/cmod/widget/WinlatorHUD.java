@@ -817,7 +817,28 @@ public class WinlatorHUD extends View {
         snapFps = frames * 1_000_000_000f / dt;
         lastFpsNs = now;
 
-        String value = String.format(Locale.US, "%.0f", snapFps);
+        int fgMode = 0;
+        try {
+            Context ctx = getContext();
+            if (ctx instanceof XServerDisplayActivity) {
+                XServerDisplayActivity act = (XServerDisplayActivity) ctx;
+                XServerRendererView rv = act.getXServerView();
+                if (rv instanceof XServerView && act.getXServer() != null && act.getXServer().isDisplayX()) {
+                    fgMode = ((XServerView) rv).nativeGetFrameGenMode();
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        float displayedFps = (fgMode > 0) ? (snapFps * 2f) : snapFps;
+        String value;
+        if (fgMode == 2) {
+            value = String.format(Locale.US, "%.0f [NPU 2X]", displayedFps);
+        } else if (fgMode == 1) {
+            value = String.format(Locale.US, "%.0f [GPU 2X]", displayedFps);
+        } else {
+            value = String.format(Locale.US, "%.0f", snapFps);
+        }
+
         if (!value.equals(strFps)) {
             strFps = value;
             wDynFps = pVal.measureText(strFps);

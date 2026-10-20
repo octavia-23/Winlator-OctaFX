@@ -323,12 +323,22 @@ bool NPUFrameInterpolator::interpolate(AHardwareBuffer *prevBuffer,
     void *ptrCurr = nullptr;
     void *ptrOut = nullptr;
 
-    const uint64_t usageRead = AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN;
-    const uint64_t usageWrite = AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN;
+    uint64_t usageRead = AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN;
+    uint64_t usageWrite = AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN;
 
     int resA = AHardwareBuffer_lock(prevBuffer, usageRead, -1, nullptr, &ptrPrev);
+    if (resA != 0) {
+        usageRead = AHARDWAREBUFFER_USAGE_CPU_READ_RARELY;
+        resA = AHardwareBuffer_lock(prevBuffer, usageRead, -1, nullptr, &ptrPrev);
+    }
     int resB = AHardwareBuffer_lock(currBuffer, usageRead, -1, nullptr, &ptrCurr);
+    if (resB != 0) {
+        resB = AHardwareBuffer_lock(currBuffer, AHARDWAREBUFFER_USAGE_CPU_READ_RARELY, -1, nullptr, &ptrCurr);
+    }
     int resOut = AHardwareBuffer_lock(outputBuffer, usageWrite, -1, nullptr, &ptrOut);
+    if (resOut != 0) {
+        resOut = AHardwareBuffer_lock(outputBuffer, AHARDWAREBUFFER_USAGE_CPU_WRITE_RARELY, -1, nullptr, &ptrOut);
+    }
 
     if (resA != 0 || resB != 0 || resOut != 0 || !ptrPrev || !ptrCurr || !ptrOut) {
         if (resA == 0) AHardwareBuffer_unlock(prevBuffer, nullptr);

@@ -1257,7 +1257,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
     }
 
     private boolean isDisplayXEnabled() {
-        if (shortcut != null) return shortcut.getUseDisplayX();
+        String frameGen = container != null ? container.getExtra("graphicsFrameGen", "0") : "0";
+        if (shortcut != null) {
+            String scFrameGen = shortcut.getExtra("graphicsFrameGen");
+            if (scFrameGen != null && !scFrameGen.isEmpty() && !"0".equals(scFrameGen)) return true;
+            if (shortcut.getUseDisplayX()) return true;
+        }
+        if (!"0".equals(frameGen)) return true;
         return container != null && container.getUseDisplayX();
     }
 
@@ -2104,10 +2110,22 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
             spFrameGenFPS.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
-                    if (nativeRenderer != null) nativeRenderer.nativeSetFrameGenMode(pos);
                     if (container != null) {
                         container.putExtra("graphicsFrameGen", String.valueOf(pos));
+                        if (pos > 0) container.putExtra("useDisplayX", "1");
                         container.saveData();
+                    }
+                    if (shortcut != null) {
+                        shortcut.putExtra("graphicsFrameGen", String.valueOf(pos));
+                        if (pos > 0) shortcut.putExtra("useDisplayX", "1");
+                        shortcut.saveData();
+                    }
+                    if (nativeRenderer != null) {
+                        nativeRenderer.nativeSetFrameGenMode(pos);
+                    } else if (pos > 0) {
+                        android.widget.Toast.makeText(XServerDisplayActivity.this,
+                                "Frame Gen enabled! Switched to DisplayX engine. Please restart game session to apply.",
+                                android.widget.Toast.LENGTH_LONG).show();
                     }
                 }
                 @Override public void onNothingSelected(AdapterView<?> p) {}

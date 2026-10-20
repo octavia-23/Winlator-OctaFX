@@ -847,7 +847,9 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
                     container.setShowFPS(showFPS);
                     container.putExtra("hudMode", String.valueOf(hudMode));
                     if (spFrameGen != null) {
-                        container.putExtra("graphicsFrameGen", String.valueOf(spFrameGen.getSelectedItemPosition()));
+                        int pos = spFrameGen.getSelectedItemPosition();
+                        container.putExtra("graphicsFrameGen", String.valueOf(pos));
+                        if (pos > 0) container.putExtra("useDisplayX", "1");
                     }
                     if (cbMemoryDefense != null) {
                         container.putExtra("memoryDefense", cbMemoryDefense.isChecked() ? "1" : "0");
@@ -914,7 +916,9 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
                     data.put("controllerMapping", controllerMapping);
                     JSONObject extraData = new JSONObject();
                     if (spFrameGen != null) {
-                        extraData.put("graphicsFrameGen", String.valueOf(spFrameGen.getSelectedItemPosition()));
+                        int pos = spFrameGen.getSelectedItemPosition();
+                        extraData.put("graphicsFrameGen", String.valueOf(pos));
+                        if (pos > 0) extraData.put("useDisplayX", "1");
                     }
                     if (cbMemoryDefense != null) {
                         extraData.put("memoryDefense", cbMemoryDefense.isChecked() ? "1" : "0");
