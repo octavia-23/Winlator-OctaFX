@@ -2107,7 +2107,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         updateSharpnessVis.run();
 
-        final String[] frameGenLabels = {"Off", "GPU Interpolation (Vulkan)", "Qualcomm Hexagon NPU (HTP)"};
+        final String[] frameGenLabels = {"Off", "GPU Interpolation (Vulkan FG 2.0)", "Qualcomm Hexagon NPU (HTP FG 2.0)"};
         if (spFrameGenFPS != null) {
             ArrayAdapter<String> a = createSidebarSpinnerAdapter(frameGenLabels);
             a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -2795,6 +2795,23 @@ public class XServerDisplayActivity extends AppCompatActivity {
                             "dxwrapper/d8vk-" + DefaultVersion.D8VK + ".tzst", windowsDir, onExtractFileListener);
                 }
             }
+
+            try {
+                String dxvkConfContent = "# Winlator-OctaFX DXVK Async & Pipeline Cache Configuration\n" +
+                                         "dxvk.enableAsync = true\n" +
+                                         "dxvk.gpl = true\n" +
+                                         "dxvk.gplAsyncCache = true\n" +
+                                         "dxvk.enableStateCache = True\n" +
+                                         "dxgi.syncInterval = 0\n";
+                File sys32Dir = new File(windowsDir, "system32");
+                if (sys32Dir.isDirectory()) {
+                    FileUtils.writeString(new File(sys32Dir, "dxvk.conf"), dxvkConfContent);
+                }
+                File driveCDir = new File(rootDir, ImageFs.WINEPREFIX + "/drive_c");
+                if (driveCDir.isDirectory()) {
+                    FileUtils.writeString(new File(driveCDir, "dxvk.conf"), dxvkConfContent);
+                }
+            } catch (Throwable ignored) {}
 
             if (vkd3dWrapper.contains("None")) {
                 Log.d(TAG, "No VKD3D has been selected, restoring original d3d12");

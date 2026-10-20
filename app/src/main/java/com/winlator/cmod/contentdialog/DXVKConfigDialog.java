@@ -160,8 +160,8 @@ public class DXVKConfigDialog extends ContentDialog {
             }
         }
 
-        swAsync.setChecked(config.get("async").equals("1"));
-        swAsyncCache.setChecked(config.get("asyncCache").equals("1"));
+        swAsync.setChecked(!"0".equals(config.get("async", "1")));
+        swAsyncCache.setChecked(!"0".equals(config.get("asyncCache", "1")));
         String zstdCacheVal = config.get("zstdCache");
         swZstdPipelineCache.setChecked(!"0".equals(zstdCacheVal));
         swMaxFrameLatency.setChecked(config.get("maxFrameLatency").equals("1"));
@@ -354,12 +354,18 @@ public class DXVKConfigDialog extends ContentDialog {
         }
 
         String async = config.get("async");
-        if (!async.isEmpty() && !async.equals("0"))
+        if (!"0".equals(async)) {
             envVars.put("DXVK_ASYNC", "1");
+            if (!content.isEmpty()) content += "; ";
+            content += "dxvk.enableAsync = true; dxvk.gpl = true";
+        }
 
         String asyncCache = config.get("asyncCache");
-        if (!asyncCache.isEmpty() && !asyncCache.equals("0"))
+        if (!"0".equals(asyncCache)) {
             envVars.put("DXVK_GPLASYNCCACHE", "1");
+            if (!content.isEmpty()) content += "; ";
+            content += "dxvk.gplAsyncCache = true";
+        }
 
         String zstdCache = config.get("zstdCache");
         if (!"0".equals(zstdCache)) {

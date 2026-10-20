@@ -500,7 +500,7 @@ public class ContainerDetailFragment extends Fragment implements DXVKConfigDialo
         final Spinner spFrameGen = view.findViewById(R.id.SFrameGen);
         if (spFrameGen != null) {
             ArrayAdapter<String> frameGenAdapter = new ArrayAdapter<>(context, R.layout.spinner_item_amoled,
-                    new String[]{"Off", "GPU Interpolation (Vulkan)", "Qualcomm Hexagon NPU (HTP)"});
+                    new String[]{"Off", "GPU Interpolation (Vulkan FG 2.0)", "Qualcomm Hexagon NPU (HTP FG 2.0)"});
             frameGenAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_amoled_compact);
             spFrameGen.setAdapter(frameGenAdapter);
             String savedFG = isEditMode() ? container.getExtra("graphicsFrameGen") : "0";
