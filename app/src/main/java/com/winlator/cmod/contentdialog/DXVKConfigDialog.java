@@ -370,6 +370,21 @@ public class DXVKConfigDialog extends ContentDialog {
             } catch (Throwable ignored) {}
         }
 
+        // Pin DXVK compiler threads to performance core cluster to avoid efficiency core stalls
+        if (!content.contains("dxvk.numCompilerThreads")) {
+            com.winlator.cmod.core.SoCDetector.Preset hostPreset = com.winlator.cmod.core.SoCDetector.detectHostPreset();
+            int compilerThreads = 4;
+            if (hostPreset == com.winlator.cmod.core.SoCDetector.Preset.SNAPDRAGON_8S_GEN3
+                    || hostPreset == com.winlator.cmod.core.SoCDetector.Preset.SNAPDRAGON_8_GEN2) {
+                compilerThreads = 5;
+            } else if (hostPreset == com.winlator.cmod.core.SoCDetector.Preset.SNAPDRAGON_8_GEN3
+                    || hostPreset == com.winlator.cmod.core.SoCDetector.Preset.DIMENSITY_FLAGSHIP) {
+                compilerThreads = 6;
+            }
+            if (!content.isEmpty()) content += "; ";
+            content += "dxvk.numCompilerThreads = " + compilerThreads;
+        }
+
         if (!content.isEmpty())
             envVars.put("DXVK_CONFIG", content);
 

@@ -86,6 +86,10 @@ public class WinlatorHUD extends View {
             "/sys/class/kgsl/kgsl-3d0/gpubusy",
             "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
             "/sys/class/kgsl/kgsl-3d0/devfreq/gpu_load",
+            "/sys/class/devfreq/3d00000.qcom,kgsl-3d0/load",
+            "/sys/class/devfreq/soc:qcom,kgsl-3d0/load",
+            "/sys/devices/platform/soc/3d00000.qcom,kgsl-3d0/kgsl/kgsl-3d0/gpubusy",
+            "/sys/devices/platform/soc/3d00000.qcom,kgsl-3d0/devfreq/3d00000.qcom,kgsl-3d0/load",
             "/sys/class/misc/mali0/device/utilisation",
             "/sys/class/misc/mali0/device/utilization",
             "/sys/class/misc/mali0/device/gpuinfo",
@@ -100,6 +104,32 @@ public class WinlatorHUD extends View {
             "/sys/kernel/ged/hal/gpu_utilization",
             "/sys/module/ged/parameters/gpu_loading",
             "/proc/mtk_mali/utilization"
+    };
+
+    private static final String[] GPU_FREQ_CANDIDATES = {
+            "/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq",
+            "/sys/class/kgsl/kgsl-3d0/devfreq/max_freq",
+            "/sys/class/kgsl/kgsl-3d0/devfreq/min_freq",
+
+            "/sys/class/kgsl/kgsl-3d0/gpuclk",
+            "/sys/class/kgsl/kgsl-3d0/max_gpuclk",
+            "/sys/class/kgsl/kgsl-3d0/min_gpuclk",
+
+            "/sys/class/devfreq/3d00000.qcom,kgsl-3d0/cur_freq",
+            "/sys/class/devfreq/3d00000.qcom,kgsl-3d0/max_freq",
+            "/sys/class/devfreq/3d00000.qcom,kgsl-3d0/min_freq",
+
+            "/sys/class/devfreq/soc:qcom,kgsl-3d0/cur_freq",
+            "/sys/class/devfreq/soc:qcom,kgsl-3d0/max_freq",
+            "/sys/class/devfreq/soc:qcom,kgsl-3d0/min_freq",
+
+            "/sys/devices/platform/soc/3d00000.qcom,kgsl-3d0/devfreq/3d00000.qcom,kgsl-3d0/cur_freq",
+            "/sys/devices/platform/soc/3d00000.qcom,kgsl-3d0/devfreq/3d00000.qcom,kgsl-3d0/max_freq",
+            "/sys/devices/platform/soc/3d00000.qcom,kgsl-3d0/devfreq/3d00000.qcom,kgsl-3d0/min_freq",
+
+            "/sys/devices/platform/soc/3d00000.qcom,kgsl-3d0/kgsl/kgsl-3d0/devfreq/cur_freq",
+            "/sys/devices/platform/soc/3d00000.qcom,kgsl-3d0/kgsl/kgsl-3d0/devfreq/max_freq",
+            "/sys/devices/platform/soc/3d00000.qcom,kgsl-3d0/kgsl/kgsl-3d0/devfreq/min_freq"
     };
 
     private static final String[] GPU_USAGE_FILES = {
@@ -203,6 +233,9 @@ public class WinlatorHUD extends View {
     private long lastBatteryRegisterNs = 0;
 
     private String[] gpuPaths = new String[0];
+    private String gpuCurFreqPath = null;
+    private String gpuMaxFreqPath = null;
+    private String gpuMinFreqPath = null;
     private boolean gpuUnavailable;
     private int gpuConsecutiveFailures;
     private Long lastMaliGpuInfoMs;
@@ -379,8 +412,24 @@ public class WinlatorHUD extends View {
         scanGpuNodesOnce(new File("/sys/devices/virtual/devfreq"), found);
         scanPlatformGpuNodesOnce(new File("/sys/devices/platform"), found);
 
+        for (int i = 0; i < GPU_FREQ_CANDIDATES.length; i += 3) {
+            try {
+                File cur = new File(GPU_FREQ_CANDIDATES[i]);
+                File max = new File(GPU_FREQ_CANDIDATES[i + 1]);
+                if (cur.canRead() && max.canRead()) {
+                    gpuCurFreqPath = cur.getPath();
+                    gpuMaxFreqPath = max.getPath();
+                    if (i + 2 < GPU_FREQ_CANDIDATES.length) {
+                        File min = new File(GPU_FREQ_CANDIDATES[i + 2]);
+                        if (min.canRead()) gpuMinFreqPath = min.getPath();
+                    }
+                    break;
+                }
+            } catch (Exception ignored) {}
+        }
+
         gpuPaths = found.toArray(new String[0]);
-        gpuUnavailable = gpuPaths.length == 0;
+        gpuUnavailable = gpuPaths.length == 0 && gpuCurFreqPath == null;
     }
 
     private void scanGpuNodesOnce(File root, LinkedHashSet<String> found) {
@@ -401,6 +450,9 @@ public class WinlatorHUD extends View {
             File[] nodes = root.listFiles(File::isDirectory);
             if (nodes == null) return;
             for (File node : nodes) {
+                if ("soc".equalsIgnoreCase(node.getName())) {
+                    scanPlatformGpuNodesOnce(node, found);
+                }
                 if (!looksLikeGpuNode(node.getName())) continue;
                 addGpuUsageFiles(node, found);
             }
@@ -460,8 +512,22 @@ public class WinlatorHUD extends View {
 
         int value = -1;
         for (String path : gpuPaths) {
-            value = readGpuSample(path);
-            if (value >= 0) break;
+            int sample = readGpuSample(path);
+            if (sample > 0) {
+                value = sample;
+                break;
+            } else if (sample == 0 && value < 0) {
+                value = 0;
+            }
+        }
+
+        // If direct usage counters returned 0 or -1, estimate utilization from active GPU frequency scaling
+        // This overcomes Qualcomm GMU firmware autonomous power management where host kgsl sysfs returns 0 ticks
+        if (value <= 0) {
+            int freqVal = readGpuFreqSample();
+            if (freqVal >= 0) {
+                value = freqVal;
+            }
         }
 
         if (value >= 0) {
@@ -481,6 +547,39 @@ public class WinlatorHUD extends View {
                 wDynGpu = pVal.measureText(strGpu);
             }
         }
+    }
+
+    private int readGpuFreqSample() {
+        if (gpuCurFreqPath == null || gpuMaxFreqPath == null) return -1;
+        try {
+            long cur = readLongFirstToken(gpuCurFreqPath);
+            long max = readLongFirstToken(gpuMaxFreqPath);
+            if (cur <= 0L || max <= 0L) return -1;
+            long min = gpuMinFreqPath != null ? readLongFirstToken(gpuMinFreqPath) : 0L;
+            if (min > 0L && max > min && cur >= min) {
+                return clampPercent((int) (((cur - min) * 100L) / (max - min)));
+            } else {
+                return clampPercent((int) ((cur * 100L) / max));
+            }
+        } catch (Exception ignored) {
+            return -1;
+        }
+    }
+
+    private long readLongFirstToken(String path) {
+        String line = readFirstLine(path);
+        if (line == null) return -1L;
+        for (String token : line.trim().split("\s+")) {
+            String digits = token.replaceAll("[^0-9]", "");
+            if (!digits.isEmpty()) {
+                try {
+                    return Long.parseLong(digits);
+                } catch (Exception ignored) {
+                    return -1L;
+                }
+            }
+        }
+        return -1L;
     }
 
     private int readGpuSample(String path) {

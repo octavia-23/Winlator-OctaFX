@@ -2618,6 +2618,20 @@ public class XServerDisplayActivity extends AppCompatActivity {
             envVars.put("ENABLE_VKBASALT", "1");
             envVars.put("VKBASALT_CONFIG", vkbasaltConfig);
         }
+
+        // Ensure Mesa shader cache persistence across launches and IR3 optimizations
+        File shaderCacheDir = new File(imageFs.getRootDir(), "home/xuser/.cache");
+        if (!shaderCacheDir.exists()) shaderCacheDir.mkdirs();
+
+        if (!envVars.has("MESA_SHADER_CACHE_DIR")) {
+            envVars.put("MESA_SHADER_CACHE_DIR", "/home/xuser/.cache");
+        }
+        if (!envVars.has("MESA_SHADER_CACHE_MAX_SIZE") || "512MB".equals(envVars.get("MESA_SHADER_CACHE_MAX_SIZE"))) {
+            envVars.put("MESA_SHADER_CACHE_MAX_SIZE", "6144MB");
+        }
+        if (!envVars.has("IR3_SHADER_DEBUG")) {
+            envVars.put("IR3_SHADER_DEBUG", "gcm");
+        }
     }
 
     @Override

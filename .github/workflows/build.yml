@@ -83,29 +83,30 @@ jobs:
           mkdir -p release-output
           APK_FILE=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
           echo "Found APK: $APK_FILE"
-          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.0.5.apk
+          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.0.6.apk
           ls -lh release-output/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Winlator-OctaFX-v1.0.5
-          path: release-output/Winlator-OctaFX-v1.0.5.apk
+          name: Winlator-OctaFX-v1.0.6
+          path: release-output/Winlator-OctaFX-v1.0.6.apk
           if-no-files-found: error
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/4.1'
         with:
-          tag_name: v1.0.5-OctaFX
-          name: "Winlator-OctaFX v1.0.5 (ADPF Thermal Immunity & ARMv9 Dynarec Turbo)"
+          tag_name: v1.0.6-OctaFX
+          name: "Winlator-OctaFX v1.0.6 (Snapdragon 8s Gen 3 Adreno 735 Dynamic GPU Sensor, Turnip GCM & Shader Cache Boost)"
           body: |
-            Winlator-OctaFX v1.0.5:
-            - **ADPF (Android Dynamic Performance Framework) Engine**: Directly interfaces with Android 12-14 (HyperOS) `PerformanceHintManager` to report real-time frame render deadlines and execution intervals to the Qualcomm Energy-Aware Scheduler (EAS), eliminating governor jitter and pacing stutters.
-            - **Hardware Sustained Performance Mode**: Engages Android `Window.setSustainedPerformanceMode(true)` to lock high-throughput clocks and prevent severe thermal clock down-stepping during marathon gaming sessions.
-            - **ARMv9 Dynarec Turbo Engine (Box64)**: New dedicated Box64 preset tailored for ARMv9.2 Cortex-X4 and Cortex-A720 pipelines. Features `FASTNAN=1`, single-instruction `FASTROUND=1`, relaxed `STRONGMEM=0` leveraging hardware RCpc (`FEAT_LRCPC`), `AVX=2` vector emulation, and `BIGBLOCK=3` / `FORWARD=512`.
-            - **Dynamic SoC Auto-Selection**: Automatically activates ARMv9 Turbo on Snapdragon 8s Gen 3 (POCO F6), 8 Gen 3, 8 Gen 2, and Dimensity 9300+.
-            - **Full Cumulative Core**: Retains Qualcomm Hexagon NPU AI Frame Generation, Aggressive RAM Defense (`oom_score_adj -1000`), SoC Affinity Masking, and DXVK Zstd Pre-Caching.
-          files: release-output/Winlator-OctaFX-v1.0.5.apk
+            Winlator-OctaFX v1.0.6:
+            - **Dynamic Adreno 735 / Snapdragon 8s Gen 3 GPU Sensor**: Overcomes Qualcomm GMU firmware autonomous power management where host sysfs `gpubusy` returns 0 ticks to unprivileged userland apps on Android 14 / HyperOS. Added recursive platform SoC devfreq traversal and responsive frequency-scaled utilization estimation ($\frac{cur - min}{max - min} \times 100\%$).
+            - **Turnip Persistent 6GB Shader Cache**: Explicitly anchors `MESA_SHADER_CACHE_DIR=/home/xuser/.cache` to persistent container storage across launches and expands `MESA_SHADER_CACHE_MAX_SIZE` to **6144MB** to eliminate shader compilation stutter and cache eviction drops.
+            - **Freedreno IR3 Global Code Motion**: Enables `IR3_SHADER_DEBUG=gcm` to run Global Code Motion optimization in the Turnip compiler backend, hoisting loop invariants and reducing register pressure across Adreno 735 ALUs.
+            - **DXVK Performance Core Pinning**: Dynamically sets `dxvk.numCompilerThreads` based on SoC architecture (5 worker threads on Snapdragon 8s Gen 3 / POCO F6) to prevent shader compilation stalls on slow Cortex-A520 efficiency cores.
+            - **ARMv9 Dynarec Turbo Supercharged**: Upgraded Box64 preset with `BOX64_DYNAREC_WEAKBARRIER=1`, `BOX64_DYNAREC_DIRTY=1`, and expanded dynarec forward lookahead buffer `FORWARD=1024`.
+            - **Full Cumulative Core**: Retains ADPF Sustained Performance, Qualcomm Hexagon NPU AI Frame Generation, Aggressive RAM Defense (`oom_score_adj -1000`), SoC Affinity Masking, and DXVK Zstd Pre-Caching.
+          files: release-output/Winlator-OctaFX-v1.0.6.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
