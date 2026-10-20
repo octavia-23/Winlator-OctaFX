@@ -372,7 +372,7 @@ public class DXVKConfigDialog extends ContentDialog {
 
         // Pin DXVK compiler threads to performance core cluster to avoid efficiency core stalls
         if (!content.contains("dxvk.numCompilerThreads")) {
-            com.winlator.cmod.core.SoCDetector.Preset hostPreset = com.winlator.cmod.core.SoCDetector.detectHostPreset();
+            com.winlator.cmod.core.SoCDetector.Preset hostPreset = com.winlator.cmod.core.SoCDetector.getDetectedPreset();
             int compilerThreads = 4;
             if (hostPreset == com.winlator.cmod.core.SoCDetector.Preset.SNAPDRAGON_8S_GEN3
                     || hostPreset == com.winlator.cmod.core.SoCDetector.Preset.SNAPDRAGON_8_GEN2) {

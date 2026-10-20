@@ -95,6 +95,10 @@ public final class SoCDetector {
         return detectedPreset;
     }
 
+    public static synchronized Preset detectHostPreset() {
+        return getDetectedPreset();
+    }
+
     public static synchronized String getSoCModelName() {
         if (detectedPreset == null) {
             detectSoC();
