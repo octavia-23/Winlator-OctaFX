@@ -522,8 +522,8 @@ void DisplayX::presentThreadLoop() {
     
     if (isPerformanceHintAPIAvailable() && perfMode) {
         performanceHintManager = pfnAPerformanceHintGetManager();
-        float targetFloat = xServer->refreshRate * 100.0f;
-        int64_t targetWorkDuration = static_cast<int64_t>(1000000000.0f / targetFloat);
+        float hz = (xServer && xServer->refreshRate > 10.0f) ? xServer->refreshRate : 60.0f;
+        int64_t targetWorkDuration = static_cast<int64_t>(1000000000.0 / static_cast<double>(hz));
     
         int tid = gettid();
         std::vector<int32_t> tids{tid};
@@ -586,14 +586,11 @@ void DisplayX::presentThreadLoop() {
                         AHardwareBuffer *interBuffer = frameGenBuffers[frameGenBufferIdx];
                         frameGenBufferIdx = (frameGenBufferIdx + 1) % 2;
 
-                        effectComposer->generateFrame(prevFrameGenDrawable, drawable, interBuffer);
-
-                        pfnASurfaceTransactionSetBuffer(presentTransaction, window->control, interBuffer, -1);
-                        pfnASurfaceTransactionSetBufferTransparency(presentTransaction, window->control, ASURFACE_TRANSACTION_TRANSPARENCY_OPAQUE);
-                        pfnASurfaceTransactionApply(presentTransaction);
-
-                        int paceSleepMs = std::clamp(smoothedFrameIntervalMs / 2, 4, 30);
-                        std::this_thread::sleep_for(std::chrono::milliseconds(paceSleepMs));
+                        if (effectComposer->generateFrame(prevFrameGenDrawable, drawable, interBuffer)) {
+                            pfnASurfaceTransactionSetBuffer(presentTransaction, window->control, interBuffer, -1);
+                            pfnASurfaceTransactionSetBufferTransparency(presentTransaction, window->control, ASURFACE_TRANSACTION_TRANSPARENCY_OPAQUE);
+                            pfnASurfaceTransactionApply(presentTransaction);
+                        }
                     } else {
                         lastFrameGenPresentTime = std::chrono::steady_clock::now();
                     }

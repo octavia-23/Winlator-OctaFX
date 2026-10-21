@@ -5,6 +5,7 @@
 #include <atomic>
 #include <unordered_set>
 #include <memory>
+#include <mutex>
 
 #include "drawable.hpp"
 #include "renderer_jni.hpp"
@@ -142,13 +143,14 @@ class EffectComposer {
         std::unique_ptr<NPUFrameInterpolator> npuInterpolator;
         bool initialized = false;
         std::atomic_bool isOperationPending{false};
+        std::mutex executionMutex;
         
         VkResult createInstance();
         VkResult pickPhysicalDevice();
         VkResult createDevice();
         VkResult createPipelines();
         void swapColors(Drawable *drawable);
-        void vulkanInterpolate(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer);
+        bool vulkanInterpolate(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer);
         
   public:      
         EffectComposer();
@@ -164,7 +166,8 @@ class EffectComposer {
         bool isFrameGenEnabled();
         void setFrameGenMode(int mode);
         int getFrameGenMode();
-        void generateFrame(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer);
+        bool generateFrame(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer);
+        const char *getActiveBackendName() const;
         bool isEnabled();
         bool isSuitableForColorSwap(Drawable *drawable);
         bool isPending();

@@ -47,7 +47,7 @@ NPUFrameInterpolator::~NPUFrameInterpolator() {
 bool NPUFrameInterpolator::init() {
     if (m_initialized) return m_available;
 
-    NPU_LOGI("Initializing Qualcomm Hexagon NPU Frame Gen 2.0 Engine...");
+    NPU_LOGI("Initializing Qualcomm Hexagon / NEON Frame Gen Engine...");
 
     if (!m_threadPool) {
         m_threadPool = std::make_unique<FrameGenThreadPool>(4);
@@ -55,12 +55,13 @@ bool NPUFrameInterpolator::init() {
 
     if (initQnnHtp()) {
         m_available = true;
-        m_backendName = "Qualcomm Hexagon HTP (FG 2.0)";
-        NPU_LOGI("Hexagon HTP Backend active: %s", m_backendName);
+        m_backendName = (m_graphHandle != nullptr) ? "Qualcomm Hexagon HTP" : "CPU NEON SIMD";
+        NPU_LOGI("Hexagon HTP Backend initialized (graph bound: %s): %s",
+                 (m_graphHandle != nullptr ? "yes" : "no"), m_backendName);
     } else {
         m_available = true;
-        m_backendName = "Snapdragon AI Motion Engine (FG 2.0 NEON)";
-        NPU_LOGI("Qualcomm Hexagon fallback active: %s", m_backendName);
+        m_backendName = "CPU NEON SIMD";
+        NPU_LOGI("CPU NEON SIMD engine active: %s", m_backendName);
     }
 
     m_initialized = true;
@@ -214,12 +215,21 @@ void NPUFrameInterpolator::extractLumaSlice(const uint8_t *srcRGBA, int srcStrid
         int x = 0;
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
         for (; x <= dstW - 8; x += 8) {
-            uint8_t lumaVals[8];
+            uint8_t r_arr[8], g_arr[8], b_arr[8];
             for (int k = 0; k < 8; k++) {
                 const uint8_t *p = srcRow + (x + k) * 16;
-                lumaVals[k] = static_cast<uint8_t>((p[0] * 2 + p[1] * 5 + p[2]) >> 3);
+                r_arr[k] = p[0];
+                g_arr[k] = p[1];
+                b_arr[k] = p[2];
             }
-            vst1_u8(dstRow + x, vld1_u8(lumaVals));
+            uint8x8_t r = vld1_u8(r_arr);
+            uint8x8_t g = vld1_u8(g_arr);
+            uint8x8_t b = vld1_u8(b_arr);
+            uint16x8_t luma16 = vmull_u8(r, vdup_n_u8(2));
+            luma16 = vmlal_u8(luma16, g, vdup_n_u8(5));
+            luma16 = vaddw_u8(luma16, b);
+            uint8x8_t luma8 = vshrn_n_u16(luma16, 3);
+            vst1_u8(dstRow + x, luma8);
         }
 #endif
         for (; x < dstW; x++) {
@@ -332,12 +342,36 @@ void NPUFrameInterpolator::synthesizeFrameSlice(const uint8_t *srcA, int strideA
         const uint8_t *rowB = srcB + y * (strideB * 4);
         uint8_t *rowDst = dst + y * (strideDst * 4);
 
-        for (int x = 0; x < width; x++) {
+        for (int x = 0; x < width; ) {
             int bx = std::clamp(x / BLOCK_SIZE_FULL, 0, blocksX - 1);
             int blockIdx = by * blocksX + bx;
 
             int vx = flowX[blockIdx];
             int vy = flowY[blockIdx];
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+            if (vx == 0 && vy == 0) {
+                int endX = std::min(x + BLOCK_SIZE_FULL, width);
+                for (; x <= endX - 4; x += 4) {
+                    uint8x16_t a = vld1q_u8(rowA + x * 4);
+                    uint8x16_t b = vld1q_u8(rowB + x * 4);
+                    uint8x16_t avg = vrhaddq_u8(a, b);
+                    static const uint8_t alphaMask[16] = {0,0,0,255, 0,0,0,255, 0,0,0,255, 0,0,0,255};
+                    avg = vorrq_u8(avg, vld1q_u8(alphaMask));
+                    vst1q_u8(rowDst + x * 4, avg);
+                }
+                for (; x < endX; x++) {
+                    const uint8_t *origA = rowA + x * 4;
+                    const uint8_t *origB = rowB + x * 4;
+                    uint8_t *pDst = rowDst + x * 4;
+                    pDst[0] = static_cast<uint8_t>((origA[0] + origB[0]) >> 1);
+                    pDst[1] = static_cast<uint8_t>((origA[1] + origB[1]) >> 1);
+                    pDst[2] = static_cast<uint8_t>((origA[2] + origB[2]) >> 1);
+                    pDst[3] = 255;
+                }
+                continue;
+            }
+#endif
 
             // 1. FG 2.0 Static HUD / Crosshair Protection:
             // If native pixel colors in Frame A & B are identical or near-identical,
@@ -399,6 +433,7 @@ void NPUFrameInterpolator::synthesizeFrameSlice(const uint8_t *srcA, int strideA
                 pDst[2] = static_cast<uint8_t>((origA[2] + origB[2]) >> 1);
                 pDst[3] = 255;
             }
+            x++;
         }
     }
 }
@@ -473,14 +508,24 @@ bool NPUFrameInterpolator::interpolate(AHardwareBuffer *prevBuffer,
     const int NUM_SLICES = 4;
 
     // Step 1: Parallel Luma Extraction
-    int lumaSliceH = m_dsH / NUM_SLICES;
+    struct LumaTaskCtx {
+        NPUFrameInterpolator *self;
+        const uint8_t *bufA;
+        int strideA;
+        const uint8_t *bufB;
+        int strideB;
+        int lumaSliceH;
+    };
+    LumaTaskCtx lumaCtx{this, bufA, strideA, bufB, strideB, m_dsH / NUM_SLICES};
+    auto lumaTask = [](void *ctx, int s) {
+        auto *c = static_cast<LumaTaskCtx *>(ctx);
+        int yStart = s * c->lumaSliceH;
+        int yEnd = (s == NUM_SLICES - 1) ? c->self->m_dsH : yStart + c->lumaSliceH;
+        c->self->extractLumaSlice(c->bufA, c->strideA, c->self->m_lumA.data(), c->self->m_dsW, yStart, yEnd);
+        c->self->extractLumaSlice(c->bufB, c->strideB, c->self->m_lumB.data(), c->self->m_dsW, yStart, yEnd);
+    };
     for (int s = 0; s < NUM_SLICES; s++) {
-        int yStart = s * lumaSliceH;
-        int yEnd = (s == NUM_SLICES - 1) ? m_dsH : yStart + lumaSliceH;
-        m_threadPool->enqueue([this, bufA, strideA, bufB, strideB, yStart, yEnd]() {
-            extractLumaSlice(bufA, strideA, m_lumA.data(), m_dsW, yStart, yEnd);
-            extractLumaSlice(bufB, strideB, m_lumB.data(), m_dsW, yStart, yEnd);
-        });
+        m_threadPool->enqueue(lumaTask, &lumaCtx, s);
     }
     m_threadPool->waitAll();
 
@@ -488,32 +533,55 @@ bool NPUFrameInterpolator::interpolate(AHardwareBuffer *prevBuffer,
     int blocksY = (m_dsH + 7) / 8;
     int motionSliceH = blocksY / NUM_SLICES;
     if (motionSliceH == 0) motionSliceH = 1;
+    struct MotionTaskCtx {
+        NPUFrameInterpolator *self;
+        int blocksY;
+        int motionSliceH;
+    };
+    MotionTaskCtx motionCtx{this, blocksY, motionSliceH};
+    auto motionTask = [](void *ctx, int s) {
+        auto *c = static_cast<MotionTaskCtx *>(ctx);
+        int byStart = s * c->motionSliceH;
+        if (byStart >= c->blocksY) return;
+        int byEnd = (s == NUM_SLICES - 1) ? c->blocksY : std::min(byStart + c->motionSliceH, c->blocksY);
+        c->self->computeBlockMotionSlice(c->self->m_lumA.data(), c->self->m_lumB.data(),
+                                         c->self->m_flowX.data(), c->self->m_flowY.data(),
+                                         c->self->m_dsW, c->self->m_dsH, byStart, byEnd);
+    };
     for (int s = 0; s < NUM_SLICES; s++) {
-        int byStart = s * motionSliceH;
-        if (byStart >= blocksY) break;
-        int byEnd = (s == NUM_SLICES - 1) ? blocksY : std::min(byStart + motionSliceH, blocksY);
-        m_threadPool->enqueue([this, byStart, byEnd]() {
-            computeBlockMotionSlice(m_lumA.data(), m_lumB.data(),
-                                    m_flowX.data(), m_flowY.data(),
-                                    m_dsW, m_dsH, byStart, byEnd);
-        });
+        m_threadPool->enqueue(motionTask, &motionCtx, s);
     }
     m_threadPool->waitAll();
 
-    // Step 3: Spatial Vector Filtering (FG 2.0 Vector Field Smoothing)
+    // Step 3: Spatial Vector Filtering (Vector Field Smoothing)
     int blocksX = (m_dsW + 7) / 8;
     filterMotionField(blocksX, blocksY);
 
     // Step 4: Parallel Frame Synthesis with HUD Preservation
     int frameSliceH = height / NUM_SLICES;
+    struct SynthTaskCtx {
+        NPUFrameInterpolator *self;
+        const uint8_t *bufA;
+        int strideA;
+        const uint8_t *bufB;
+        int strideB;
+        uint8_t *bufOut;
+        int strideOut;
+        int width;
+        int height;
+        int frameSliceH;
+    };
+    SynthTaskCtx synthCtx{this, bufA, strideA, bufB, strideB, bufOut, strideOut, width, height, frameSliceH};
+    auto synthTask = [](void *ctx, int s) {
+        auto *c = static_cast<SynthTaskCtx *>(ctx);
+        int yStart = s * c->frameSliceH;
+        int yEnd = (s == NUM_SLICES - 1) ? c->height : yStart + c->frameSliceH;
+        c->self->synthesizeFrameSlice(c->bufA, c->strideA, c->bufB, c->strideB, c->bufOut, c->strideOut,
+                                      c->self->m_filteredFlowX.data(), c->self->m_filteredFlowY.data(),
+                                      c->width, c->height, c->self->m_dsW, c->self->m_dsH, yStart, yEnd);
+    };
     for (int s = 0; s < NUM_SLICES; s++) {
-        int yStart = s * frameSliceH;
-        int yEnd = (s == NUM_SLICES - 1) ? height : yStart + frameSliceH;
-        m_threadPool->enqueue([this, bufA, strideA, bufB, strideB, bufOut, strideOut, width, height, yStart, yEnd]() {
-            synthesizeFrameSlice(bufA, strideA, bufB, strideB, bufOut, strideOut,
-                                 m_filteredFlowX.data(), m_filteredFlowY.data(),
-                                 width, height, m_dsW, m_dsH, yStart, yEnd);
-        });
+        m_threadPool->enqueue(synthTask, &synthCtx, s);
     }
     m_threadPool->waitAll();
 

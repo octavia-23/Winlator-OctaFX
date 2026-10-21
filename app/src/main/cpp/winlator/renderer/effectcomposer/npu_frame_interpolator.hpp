@@ -23,24 +23,32 @@ enum FrameGenMode {
     FRAME_GEN_NPU = 2      // Qualcomm Hexagon NPU / FG 2.0 (HTP Direct)
 };
 
-// Lightweight persistent thread pool for sub-2.5ms parallel frame interpolation
+// Zero-allocation persistent thread pool for sub-2.5ms parallel frame interpolation
 class FrameGenThreadPool {
 public:
+    struct SliceTask {
+        void (*func)(void *ctx, int sliceIdx) = nullptr;
+        void *ctx = nullptr;
+        int sliceIdx = 0;
+    };
+
     explicit FrameGenThreadPool(size_t threads = 4) : stop(false), inFlight(0) {
         for (size_t i = 0; i < threads; ++i) {
             workers.emplace_back([this] {
                 while (true) {
-                    std::function<void()> task;
+                    SliceTask task;
                     {
                         std::unique_lock<std::mutex> lock(this->queue_mutex);
                         this->cv.wait(lock, [this] {
                             return this->stop || !this->tasks.empty();
                         });
                         if (this->stop && this->tasks.empty()) return;
-                        task = std::move(this->tasks.front());
+                        task = this->tasks.front();
                         this->tasks.pop();
                     }
-                    task();
+                    if (task.func) {
+                        task.func(task.ctx, task.sliceIdx);
+                    }
                     if (inFlight.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                         std::unique_lock<std::mutex> lk(queue_mutex);
                         finished_cv.notify_all();
@@ -50,11 +58,11 @@ public:
         }
     }
 
-    void enqueue(std::function<void()> task) {
+    void enqueue(void (*func)(void *ctx, int sliceIdx), void *ctx, int sliceIdx) {
         inFlight.fetch_add(1, std::memory_order_relaxed);
         {
             std::unique_lock<std::mutex> lock(queue_mutex);
-            tasks.push(std::move(task));
+            tasks.push(SliceTask{func, ctx, sliceIdx});
         }
         cv.notify_one();
     }
@@ -79,7 +87,7 @@ public:
 
 private:
     std::vector<std::thread> workers;
-    std::queue<std::function<void()>> tasks;
+    std::queue<SliceTask> tasks;
     std::mutex queue_mutex;
     std::condition_variable cv;
     std::condition_variable finished_cv;
@@ -95,9 +103,13 @@ public:
     bool init();
     void release();
     bool isAvailable() const { return m_available; }
-    const char *getBackendName() const { return m_backendName; }
+    bool isHexagonActive() const { return m_graphHandle != nullptr; }
+    const char *getBackendName() const {
+        if (m_graphHandle != nullptr) return "Qualcomm Hexagon HTP";
+        return "CPU NEON SIMD";
+    }
 
-    // Frame Gen 2.0: Multi-threaded, HUD-preserving, sub-pixel motion compensated interpolation
+    // Parallel motion compensated interpolation
     bool interpolate(AHardwareBuffer *prevBuffer,
                      AHardwareBuffer *currBuffer,
                      AHardwareBuffer *outputBuffer,

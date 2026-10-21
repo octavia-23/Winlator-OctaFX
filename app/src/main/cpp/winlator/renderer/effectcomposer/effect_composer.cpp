@@ -145,27 +145,216 @@ bool EffectComposer::isPending() {
     return isOperationPending.load();
 }
 
-void EffectComposer::vulkanInterpolate(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer) {
-    if (!prevDrawable || !prevDrawable->ahb || !currDrawable || !currDrawable->ahb || !outputBuffer) return;
-    if (npuInterpolator) {
-        npuInterpolator->interpolate(prevDrawable->ahb, currDrawable->ahb, outputBuffer, currDrawable->width, currDrawable->height);
+bool EffectComposer::vulkanInterpolate(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer) {
+    if (!initialized || !device || !frameGenPipeline || !commandBuffer || !queue || !fence) return false;
+    if (!prevDrawable || !prevDrawable->ahb || !currDrawable || !currDrawable->ahb || !outputBuffer) return false;
+    if (currDrawable->width <= 0 || currDrawable->height <= 0) return false;
+
+    std::lock_guard<std::mutex> lock(executionMutex);
+    isOperationPending = true;
+
+    int width = currDrawable->width;
+    int height = currDrawable->height;
+
+    VulkanAHBImage *prevImg = getOrCreateAHBImage(prevDrawable->ahb, width, height, VK_IMAGE_USAGE_SAMPLED_BIT);
+    VulkanAHBImage *currImg = getOrCreateAHBImage(currDrawable->ahb, width, height, VK_IMAGE_USAGE_SAMPLED_BIT);
+    VulkanAHBImage *outImg = getOrCreateAHBImage(outputBuffer, width, height, VK_IMAGE_USAGE_STORAGE_BIT);
+
+    if (!prevImg || !currImg || !outImg) {
+        isOperationPending = false;
+        return false;
     }
+
+    VkResult fenceRes = vkWaitForFences(device, 1, &fence, VK_TRUE, 50000000ULL);
+    if (fenceRes != VK_SUCCESS) {
+        isOperationPending = false;
+        return false;
+    }
+    vkResetFences(device, 1, &fence);
+
+    VkDescriptorImageInfo prevImageInfo{};
+    prevImageInfo.sampler = frameGenSampler;
+    prevImageInfo.imageView = prevImg->imageView;
+    prevImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkDescriptorImageInfo currImageInfo{};
+    currImageInfo.sampler = frameGenSampler;
+    currImageInfo.imageView = currImg->imageView;
+    currImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkDescriptorImageInfo outImageInfo{};
+    outImageInfo.sampler = VK_NULL_HANDLE;
+    outImageInfo.imageView = outImg->imageView;
+    outImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet descWrites[3]{};
+    descWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descWrites[0].dstSet = frameGenDescriptorSet;
+    descWrites[0].dstBinding = 0;
+    descWrites[0].descriptorCount = 1;
+    descWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descWrites[0].pImageInfo = &prevImageInfo;
+
+    descWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descWrites[1].dstSet = frameGenDescriptorSet;
+    descWrites[1].dstBinding = 1;
+    descWrites[1].descriptorCount = 1;
+    descWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descWrites[1].pImageInfo = &currImageInfo;
+
+    descWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descWrites[2].dstSet = frameGenDescriptorSet;
+    descWrites[2].dstBinding = 2;
+    descWrites[2].descriptorCount = 1;
+    descWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    descWrites[2].pImageInfo = &outImageInfo;
+
+    vkUpdateDescriptorSets(device, 3, descWrites, 0, nullptr);
+
+    vkResetCommandBuffer(commandBuffer, 0);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    VkImageSubresourceRange subresourceRange = {
+        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .baseMipLevel = 0,
+        .levelCount = 1,
+        .baseArrayLayer = 0,
+        .layerCount = 1
+    };
+
+    VkImageMemoryBarrier barriers[3]{};
+    int barrierCount = 0;
+
+    if (prevImg->currentLayout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barriers[barrierCount].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barriers[barrierCount].srcAccessMask = prevImg->currentAccess;
+        barriers[barrierCount].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barriers[barrierCount].oldLayout = prevImg->currentLayout;
+        barriers[barrierCount].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barriers[barrierCount].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[barrierCount].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[barrierCount].image = prevImg->image;
+        barriers[barrierCount].subresourceRange = subresourceRange;
+        barrierCount++;
+        prevImg->currentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        prevImg->currentStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        prevImg->currentAccess = VK_ACCESS_SHADER_READ_BIT;
+    }
+
+    if (currImg->currentLayout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barriers[barrierCount].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barriers[barrierCount].srcAccessMask = currImg->currentAccess;
+        barriers[barrierCount].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barriers[barrierCount].oldLayout = currImg->currentLayout;
+        barriers[barrierCount].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barriers[barrierCount].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[barrierCount].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[barrierCount].image = currImg->image;
+        barriers[barrierCount].subresourceRange = subresourceRange;
+        barrierCount++;
+        currImg->currentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        currImg->currentStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        currImg->currentAccess = VK_ACCESS_SHADER_READ_BIT;
+    }
+
+    if (outImg->currentLayout != VK_IMAGE_LAYOUT_GENERAL) {
+        barriers[barrierCount].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barriers[barrierCount].srcAccessMask = outImg->currentAccess;
+        barriers[barrierCount].dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        barriers[barrierCount].oldLayout = outImg->currentLayout;
+        barriers[barrierCount].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barriers[barrierCount].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[barrierCount].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[barrierCount].image = outImg->image;
+        barriers[barrierCount].subresourceRange = subresourceRange;
+        barrierCount++;
+        outImg->currentLayout = VK_IMAGE_LAYOUT_GENERAL;
+        outImg->currentStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        outImg->currentAccess = VK_ACCESS_SHADER_WRITE_BIT;
+    }
+
+    if (barrierCount > 0) {
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, barrierCount, barriers);
+    }
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, frameGenPipeline);
+
+    PushConstants constants{};
+    constants.width = width;
+    constants.height = height;
+    vkCmdPushConstants(commandBuffer, frameGenPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants), &constants);
+
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, frameGenPipelineLayout, 0, 1, &frameGenDescriptorSet, 0, nullptr);
+
+    uint32_t groupCountX = (width + 15) / 16;
+    uint32_t groupCountY = (height + 15) / 16;
+    vkCmdDispatch(commandBuffer, groupCountX, groupCountY, 1);
+
+    VkImageMemoryBarrier postBarrier{};
+    postBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    postBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    postBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    postBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    postBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    postBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    postBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    postBarrier.image = outImg->image;
+    postBarrier.subresourceRange = subresourceRange;
+
+    vkCmdPipelineBarrier(commandBuffer,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                         0, 0, nullptr, 0, nullptr, 1, &postBarrier);
+
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    VkResult submitRes = vkQueueSubmit(queue, 1, &submitInfo, fence);
+    if (submitRes != VK_SUCCESS) {
+        isOperationPending = false;
+        return false;
+    }
+
+    vkWaitForFences(device, 1, &fence, VK_TRUE, 50000000ULL);
+    isOperationPending = false;
+    return true;
 }
 
-void EffectComposer::generateFrame(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer) {
-    if (!isEnabled() || !isFrameGenEnabled() || !currDrawable || !outputBuffer) return;
-    if (!prevDrawable || !prevDrawable->ahb || !currDrawable->ahb) return;
+bool EffectComposer::generateFrame(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer) {
+    if (!isEnabled() || !isFrameGenEnabled() || !currDrawable || !outputBuffer) return false;
+    if (!prevDrawable || !prevDrawable->ahb || !currDrawable->ahb) return false;
 
     if (frameGenMode == FRAME_GEN_NPU) {
         if (npuInterpolator && npuInterpolator->isAvailable()) {
-            if (npuInterpolator->interpolate(prevDrawable->ahb, currDrawable->ahb, outputBuffer, currDrawable->width, currDrawable->height)) {
-                return;
-            }
+            return npuInterpolator->interpolate(prevDrawable->ahb, currDrawable->ahb, outputBuffer, currDrawable->width, currDrawable->height);
         }
+        return false;
+    } else if (frameGenMode == FRAME_GEN_GPU) {
+        return vulkanInterpolate(prevDrawable, currDrawable, outputBuffer);
     }
 
-    // GPU / SIMD fallback
-    vulkanInterpolate(prevDrawable, currDrawable, outputBuffer);
+    return false;
+}
+
+const char *EffectComposer::getActiveBackendName() const {
+    if (frameGenMode == FRAME_GEN_GPU) return "Vulkan Compute (Adreno 735)";
+    if (frameGenMode == FRAME_GEN_NPU) {
+        if (npuInterpolator && npuInterpolator->isAvailable()) {
+            return npuInterpolator->getBackendName();
+        }
+    }
+    return "Disabled";
 }
 
 VkResult EffectComposer::createInstance() {
@@ -1085,6 +1274,7 @@ void EffectComposer::swapColors(Drawable *drawable) {
 }
 
 void EffectComposer::apply(Drawable *drawable) {
+    std::lock_guard<std::mutex> lock(executionMutex);
     isOperationPending = true;
 
     if (!drawable->composerTexture) {
