@@ -70,20 +70,21 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
+          mkdir -p app/keystore
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Configuring release keystore from GitHub Secrets..."
-            mkdir -p app/keystore
             echo "$KEYSTORE_BASE64" | base64 -d > app/keystore/release.keystore
           else
-            echo "No RELEASE_KEYSTORE_BASE64 secret found; Gradle will fall back to debug signing."
+            echo "No RELEASE_KEYSTORE_BASE64 secret found; generating release keystore via keytool..."
+            keytool -genkey -v -keystore app/keystore/release.keystore -alias octafx -keyalg RSA -keysize 2048 -validity 10000 -storepass octafx2026 -keypass octafx2026 -dname "CN=Winlator, OU=OctaFX, O=Winlator, L=Unknown, S=Unknown, C=US"
           fi
 
       - name: Build with Gradle
         env:
           RELEASE_KEYSTORE_FILE: app/keystore/release.keystore
-          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD || 'octafx2026' }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || 'octafx' }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || 'octafx2026' }}
         run: ./gradlew assembleRelease --stacktrace --info
 
       - name: Upload Gradle Build Failure Reports

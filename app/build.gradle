@@ -134,21 +134,13 @@ android {
 
     signingConfigs {
         release {
-            def keystorePath = System.getenv("RELEASE_KEYSTORE_FILE") ?: "keystore/release.keystore"
-            def keystoreFile = file(keystorePath)
+            def keystorePath = System.getenv("RELEASE_KEYSTORE_FILE") ?: "app/keystore/release.keystore"
+            def keystoreFile = rootProject.file(keystorePath)
             if (keystoreFile.exists()) {
                 storeFile keystoreFile
-                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: ""
-                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: ""
-                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: ""
-                v1SigningEnabled true
-                v2SigningEnabled true
-            } else {
-                // Secure fallback to debug keystore for development & open-source builds
-                storeFile signingConfigs.debug.storeFile
-                storePassword signingConfigs.debug.storePassword
-                keyAlias signingConfigs.debug.keyAlias
-                keyPassword signingConfigs.debug.keyPassword
+                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "octafx2026"
+                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: "octafx"
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: "octafx2026"
                 v1SigningEnabled true
                 v2SigningEnabled true
             }
