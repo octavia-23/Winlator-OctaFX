@@ -483,11 +483,15 @@ void DisplayX::ensureFrameGenBuffers(int width, int height) {
     desc.height = height;
     desc.layers = 1;
     desc.format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+#ifndef AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER
+#define AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER (1ULL << 24)
+#endif
     desc.usage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE |
                  AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT |
                  AHARDWAREBUFFER_USAGE_COMPOSER_OVERLAY |
                  AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN |
-                 AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN;
+                 AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN |
+                 AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER;
 
     int res0 = AHardwareBuffer_allocate(&desc, &frameGenBuffers[0]);
     int res1 = AHardwareBuffer_allocate(&desc, &frameGenBuffers[1]);

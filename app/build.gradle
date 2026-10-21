@@ -104,8 +104,8 @@ android {
         // We’re preserving Winlator’s request to keep targetSdkVersion at 28
         targetSdkVersion 28
 
-        versionCode 28
-        versionName "1.0.9"
+        versionCode 29
+        versionName "1.1.0"
 
         // External native build from Winlator
         externalNativeBuild {
@@ -134,12 +134,24 @@ android {
 
     signingConfigs {
         release {
-            storeFile file("keystore/octafx.keystore")
-            storePassword "octafx2026"
-            keyAlias "octafx"
-            keyPassword "octafx2026"
-            v1SigningEnabled true
-            v2SigningEnabled true
+            def keystorePath = System.getenv("RELEASE_KEYSTORE_FILE") ?: "keystore/release.keystore"
+            def keystoreFile = file(keystorePath)
+            if (keystoreFile.exists()) {
+                storeFile keystoreFile
+                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: ""
+                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: ""
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: ""
+                v1SigningEnabled true
+                v2SigningEnabled true
+            } else {
+                // Secure fallback to debug keystore for development & open-source builds
+                storeFile signingConfigs.debug.storeFile
+                storePassword signingConfigs.debug.storePassword
+                keyAlias signingConfigs.debug.keyAlias
+                keyPassword signingConfigs.debug.keyPassword
+                v1SigningEnabled true
+                v2SigningEnabled true
+            }
         }
     }
 

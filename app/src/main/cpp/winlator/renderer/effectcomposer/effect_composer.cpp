@@ -47,6 +47,68 @@ static bool areLayersPresent() {
 
 #include "lsfg_interpolate_spv.h"
 
+
+EffectComposer::EffectComposer() {}
+
+EffectComposer::~EffectComposer() {
+    cleanup();
+}
+
+void EffectComposer::cleanup() {
+    if (device != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(device);
+        cleanupAHBImages();
+
+        if (frameGenSampler != VK_NULL_HANDLE) {
+            vkDestroySampler(device, frameGenSampler, nullptr);
+            frameGenSampler = VK_NULL_HANDLE;
+        }
+        if (frameGenDescriptorPool != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(device, frameGenDescriptorPool, nullptr);
+            frameGenDescriptorPool = VK_NULL_HANDLE;
+        }
+        if (frameGenPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, frameGenPipeline, nullptr);
+            frameGenPipeline = VK_NULL_HANDLE;
+        }
+        if (frameGenPipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(device, frameGenPipelineLayout, nullptr);
+            frameGenPipelineLayout = VK_NULL_HANDLE;
+        }
+        if (frameGenDescriptorSetLayout != VK_NULL_HANDLE) {
+            vkDestroyDescriptorSetLayout(device, frameGenDescriptorSetLayout, nullptr);
+            frameGenDescriptorSetLayout = VK_NULL_HANDLE;
+        }
+        if (colorSwapPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, colorSwapPipeline, nullptr);
+            colorSwapPipeline = VK_NULL_HANDLE;
+        }
+        if (pipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+            pipelineLayout = VK_NULL_HANDLE;
+        }
+        if (descriptorSetLayout != VK_NULL_HANDLE) {
+            vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+            descriptorSetLayout = VK_NULL_HANDLE;
+        }
+        if (fence != VK_NULL_HANDLE) {
+            vkDestroyFence(device, fence, nullptr);
+            fence = VK_NULL_HANDLE;
+        }
+        if (commandPool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(device, commandPool, nullptr);
+            commandPool = VK_NULL_HANDLE;
+        }
+        vkDestroyDevice(device, nullptr);
+        device = VK_NULL_HANDLE;
+    }
+    if (instance != VK_NULL_HANDLE) {
+        vkDestroyInstance(instance, nullptr);
+        instance = VK_NULL_HANDLE;
+    }
+    initialized = false;
+}
+
 void EffectComposer::setColorSwapEnabled(bool enabled) {
     colorSwapEnabled = enabled;
 }
@@ -363,7 +425,61 @@ VkResult EffectComposer::createPipelines() {
     colorSwapPipeline = pipelines[0];
     vkDestroyShaderModule(device, colorSwapModule, nullptr);
 
-    // Create FrameGen compute pipeline
+    // Create FrameGen compute pipeline with dedicated 3-binding descriptor layout
+    VkDescriptorSetLayoutBinding fgBindings[] = {
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            .pImmutableSamplers = nullptr
+        },
+        {
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            .pImmutableSamplers = nullptr
+        },
+        {
+            .binding = 2,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            .pImmutableSamplers = nullptr
+        }
+    };
+
+    VkDescriptorSetLayoutCreateInfo fgDescLayoutInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .bindingCount = 3,
+        .pBindings = fgBindings
+    };
+
+    result = vkCreateDescriptorSetLayout(device, &fgDescLayoutInfo, nullptr, &frameGenDescriptorSetLayout);
+    if (result != VK_SUCCESS) {
+        printf("Failed to create frameGenDescriptorSetLayout, result %d", result);
+        return result;
+    }
+
+    VkPipelineLayoutCreateInfo fgLayoutCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .setLayoutCount = 1,
+        .pSetLayouts = &frameGenDescriptorSetLayout,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pushConstants
+    };
+
+    result = vkCreatePipelineLayout(device, &fgLayoutCreateInfo, nullptr, &frameGenPipelineLayout);
+    if (result != VK_SUCCESS) {
+        printf("Failed to create frameGenPipelineLayout, result %d", result);
+        return result;
+    }
+
     VkShaderModule frameGenModule = VK_NULL_HANDLE;
     VkShaderModuleCreateInfo frameGenShaderInfo = {
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -372,28 +488,70 @@ VkResult EffectComposer::createPipelines() {
         .codeSize = lsfg_interpolate_spv_size,
         .pCode = (const uint32_t *)lsfg_interpolate_spv
     };
-    if (vkCreateShaderModule(device, &frameGenShaderInfo, nullptr, &frameGenModule) == VK_SUCCESS) {
-        VkPipelineShaderStageCreateInfo fgStageInfo = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-            .module = frameGenModule,
-            .pName = "main",
-            .pSpecializationInfo = nullptr
-        };
-        VkComputePipelineCreateInfo fgPipelineInfo = {
-            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .stage = fgStageInfo,
-            .layout = pipelineLayout,
-            .basePipelineHandle = VK_NULL_HANDLE,
-            .basePipelineIndex = -1
-        };
-        vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &fgPipelineInfo, nullptr, &frameGenPipeline);
-        vkDestroyShaderModule(device, frameGenModule, nullptr);
+    result = vkCreateShaderModule(device, &frameGenShaderInfo, nullptr, &frameGenModule);
+    if (result != VK_SUCCESS) {
+        printf("Failed to create frameGen shader module, result %d", result);
+        return result;
     }
+
+    VkPipelineShaderStageCreateInfo fgStageInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+        .module = frameGenModule,
+        .pName = "main",
+        .pSpecializationInfo = nullptr
+    };
+
+    VkComputePipelineCreateInfo fgPipelineInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .stage = fgStageInfo,
+        .layout = frameGenPipelineLayout,
+        .basePipelineHandle = VK_NULL_HANDLE,
+        .basePipelineIndex = -1
+    };
+
+    result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &fgPipelineInfo, nullptr, &frameGenPipeline);
+    vkDestroyShaderModule(device, frameGenModule, nullptr);
+    if (result != VK_SUCCESS) {
+        printf("Failed to create frameGen compute pipeline, result %d", result);
+        return result;
+    }
+
+    // Sampler for FrameGen source frames
+    VkSamplerCreateInfo fgSamplerInfo{};
+    fgSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    fgSamplerInfo.magFilter = VK_FILTER_LINEAR;
+    fgSamplerInfo.minFilter = VK_FILTER_LINEAR;
+    fgSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    fgSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    fgSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    fgSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    vkCreateSampler(device, &fgSamplerInfo, nullptr, &frameGenSampler);
+
+    // FrameGen descriptor pool
+    VkDescriptorPoolSize fgPoolSizes[2]{};
+    fgPoolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    fgPoolSizes[0].descriptorCount = 4;
+    fgPoolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    fgPoolSizes[1].descriptorCount = 2;
+
+    VkDescriptorPoolCreateInfo fgPoolInfo{};
+    fgPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    fgPoolInfo.maxSets = 2;
+    fgPoolInfo.poolSizeCount = 2;
+    fgPoolInfo.pPoolSizes = fgPoolSizes;
+    vkCreateDescriptorPool(device, &fgPoolInfo, nullptr, &frameGenDescriptorPool);
+
+    VkDescriptorSetAllocateInfo fgAllocSetInfo{};
+    fgAllocSetInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    fgAllocSetInfo.descriptorPool = frameGenDescriptorPool;
+    fgAllocSetInfo.descriptorSetCount = 1;
+    fgAllocSetInfo.pSetLayouts = &frameGenDescriptorSetLayout;
+    vkAllocateDescriptorSets(device, &fgAllocSetInfo, &frameGenDescriptorSet);
 
     return VK_SUCCESS;
 }
@@ -410,6 +568,146 @@ static uint32_t pick_memory_index(VkPhysicalDevice physicalDevice, uint32_t memo
     }
 
     return UINT32_MAX;
+}
+
+
+EffectComposer::VulkanAHBImage* EffectComposer::getOrCreateAHBImage(AHardwareBuffer *ahb, int width, int height, VkImageUsageFlags usage) {
+    if (!ahb || !device) return nullptr;
+    auto it = ahbImages.find(ahb);
+    if (it != ahbImages.end()) {
+        if (it->second.width == static_cast<uint32_t>(width) && it->second.height == static_cast<uint32_t>(height)) {
+            return &it->second;
+        }
+        destroyAHBImage(it->second);
+        ahbImages.erase(it);
+    }
+
+    VkAndroidHardwareBufferFormatPropertiesANDROID formatProps{};
+    formatProps.sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID;
+
+    VkAndroidHardwareBufferPropertiesANDROID ahbProps{};
+    ahbProps.sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID;
+    ahbProps.pNext = &formatProps;
+
+    VkResult res = vkGetAndroidHardwareBufferPropertiesANDROID(device, ahb, &ahbProps);
+    if (res != VK_SUCCESS) {
+        printf("FrameGen: Failed to query AHB properties: %d", res);
+        return nullptr;
+    }
+
+    VulkanAHBImage entry{};
+    entry.width = static_cast<uint32_t>(width);
+    entry.height = static_cast<uint32_t>(height);
+
+    VkExternalMemoryImageCreateInfo extImageInfo{};
+    extImageInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    extImageInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+
+    VkImageCreateInfo imgInfo{};
+    imgInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imgInfo.pNext = &extImageInfo;
+    imgInfo.imageType = VK_IMAGE_TYPE_2D;
+    imgInfo.format = formatProps.format;
+    imgInfo.extent = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+    imgInfo.mipLevels = 1;
+    imgInfo.arrayLayers = 1;
+    imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imgInfo.usage = usage;
+    imgInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    res = vkCreateImage(device, &imgInfo, nullptr, &entry.image);
+    if (res != VK_SUCCESS) {
+        printf("FrameGen: Failed to create VkImage: %d", res);
+        return nullptr;
+    }
+
+    VkImportAndroidHardwareBufferInfoANDROID importAHB{};
+    importAHB.sType = VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID;
+    importAHB.buffer = ahb;
+
+    VkMemoryDedicatedAllocateInfo dedicatedInfo{};
+    dedicatedInfo.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+    dedicatedInfo.pNext = &importAHB;
+    dedicatedInfo.image = entry.image;
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.pNext = &dedicatedInfo;
+    allocInfo.allocationSize = ahbProps.allocationSize;
+    allocInfo.memoryTypeIndex = pick_memory_index(physicalDevice, ahbProps.memoryTypeBits);
+
+    res = vkAllocateMemory(device, &allocInfo, nullptr, &entry.memory);
+    if (res != VK_SUCCESS) {
+        printf("FrameGen: Failed to allocate memory: %d", res);
+        vkDestroyImage(device, entry.image, nullptr);
+        return nullptr;
+    }
+
+    res = vkBindImageMemory(device, entry.image, entry.memory, 0);
+    if (res != VK_SUCCESS) {
+        printf("FrameGen: Failed to bind image memory: %d", res);
+        vkFreeMemory(device, entry.memory, nullptr);
+        vkDestroyImage(device, entry.image, nullptr);
+        return nullptr;
+    }
+
+    VkComponentMapping componentsMapping{
+        VK_COMPONENT_SWIZZLE_IDENTITY,
+        VK_COMPONENT_SWIZZLE_IDENTITY,
+        VK_COMPONENT_SWIZZLE_IDENTITY,
+        VK_COMPONENT_SWIZZLE_IDENTITY
+    };
+
+    VkImageSubresourceRange subresourceRange{
+        VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1
+    };
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = entry.image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = formatProps.format;
+    viewInfo.components = componentsMapping;
+    viewInfo.subresourceRange = subresourceRange;
+
+    res = vkCreateImageView(device, &viewInfo, nullptr, &entry.imageView);
+    if (res != VK_SUCCESS) {
+        printf("FrameGen: Failed to create image view: %d", res);
+        vkFreeMemory(device, entry.memory, nullptr);
+        vkDestroyImage(device, entry.image, nullptr);
+        return nullptr;
+    }
+
+    entry.currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    entry.currentStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    entry.currentAccess = static_cast<VkAccessFlagBits>(0);
+
+    ahbImages[ahb] = entry;
+    return &ahbImages[ahb];
+}
+
+void EffectComposer::destroyAHBImage(VulkanAHBImage &entry) {
+    if (entry.imageView != VK_NULL_HANDLE) {
+        vkDestroyImageView(device, entry.imageView, nullptr);
+        entry.imageView = VK_NULL_HANDLE;
+    }
+    if (entry.image != VK_NULL_HANDLE) {
+        vkDestroyImage(device, entry.image, nullptr);
+        entry.image = VK_NULL_HANDLE;
+    }
+    if (entry.memory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, entry.memory, nullptr);
+        entry.memory = VK_NULL_HANDLE;
+    }
+}
+
+void EffectComposer::cleanupAHBImages() {
+    for (auto &pair : ahbImages) {
+        destroyAHBImage(pair.second);
+    }
+    ahbImages.clear();
 }
 
 VkResult EffectComposer::createComposerTexture(Drawable *drawable) {

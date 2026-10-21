@@ -87,6 +87,8 @@ bool NPUFrameInterpolator::initQnnHtp() {
         "/vendor/lib64/libQnnHtp.so",
         "/vendor/lib64/libQnnHtpV75Stub.so",
         "/vendor/lib64/libQnnHtpV75.so",
+        "/vendor/lib64/libQnnHtpV73.so",
+        "/vendor/lib64/libQnnHtpV69.so",
         "/system/vendor/lib64/libQnnHtp.so",
         "libQnnHtp.so"
     };
@@ -104,18 +106,72 @@ bool NPUFrameInterpolator::initQnnHtp() {
         m_cdspHandle = dlopen("libcdsprpc.so", RTLD_NOW | RTLD_LOCAL);
     }
 
-    if (!m_qnnHtpHandle) return false;
+    if (!m_qnnHtpHandle) {
+        NPU_LOGI("Qualcomm HTP library not resident in user space; readying high-performance NEON SIMD engine");
+        return false;
+    }
 
-    auto getProviders = (pfnQnnInterface_getProviders)dlsym(m_qnnHtpHandle, "QnnInterface_getProviders");
-    if (!getProviders) return false;
+    // Resolve QNN Backend, Device, Context, and Graph lifecycle functions
+    m_pfnBackendCreate = (pfnQnnBackend_create)dlsym(m_qnnHtpHandle, "QnnBackend_create");
+    m_pfnBackendInitialize = (pfnQnnBackend_initialize)dlsym(m_qnnHtpHandle, "QnnBackend_initialize");
+    m_pfnDeviceCreate = (pfnQnnDevice_create)dlsym(m_qnnHtpHandle, "QnnDevice_create");
+    m_pfnContextCreate = (pfnQnnContext_create)dlsym(m_qnnHtpHandle, "QnnContext_create");
+    m_pfnContextFree = (pfnQnnContext_free)dlsym(m_qnnHtpHandle, "QnnContext_free");
+    m_pfnDeviceFree = (pfnQnnDevice_free)dlsym(m_qnnHtpHandle, "QnnDevice_free");
+    m_pfnBackendFree = (pfnQnnBackend_free)dlsym(m_qnnHtpHandle, "QnnBackend_free");
+    m_pfnGraphExecute = (pfnQnnGraph_execute)dlsym(m_qnnHtpHandle, "QnnGraph_execute");
 
-    const QnnInterface_t **providers = nullptr;
-    uint32_t numProviders = 0;
-    Qnn_ErrorHandle_t err = getProviders(&providers, &numProviders);
-    return (err == QNN_SUCCESS && numProviders > 0);
+    // Initialize QNN Backend
+    if (m_pfnBackendCreate) {
+        uint32_t bRes = m_pfnBackendCreate(nullptr, nullptr, &m_backendHandle);
+        if (bRes == QNN_SUCCESS && m_backendHandle) {
+            NPU_LOGI("QNN HTP Backend created: %p", m_backendHandle);
+            if (m_pfnBackendInitialize) {
+                m_pfnBackendInitialize(m_backendHandle);
+            }
+        } else {
+            NPU_LOGW("QNN HTP Backend creation returned %u", bRes);
+        }
+    }
+
+    // Initialize QNN Device
+    if (m_pfnDeviceCreate) {
+        uint32_t dRes = m_pfnDeviceCreate(nullptr, nullptr, &m_deviceHandle);
+        if (dRes == QNN_SUCCESS && m_deviceHandle) {
+            NPU_LOGI("QNN HTP Device created: %p", m_deviceHandle);
+        } else {
+            NPU_LOGW("QNN HTP Device creation returned %u", dRes);
+        }
+    }
+
+    // Initialize QNN Context
+    if (m_pfnContextCreate && m_backendHandle) {
+        uint32_t cRes = m_pfnContextCreate(m_backendHandle, m_deviceHandle, nullptr, &m_contextHandle);
+        if (cRes == QNN_SUCCESS && m_contextHandle) {
+            NPU_LOGI("QNN HTP Context created successfully: %p", m_contextHandle);
+        } else {
+            NPU_LOGW("QNN HTP Context creation returned %u", cRes);
+        }
+    }
+
+    return (m_backendHandle != nullptr);
 }
 
 void NPUFrameInterpolator::releaseQnnHtp() {
+    if (m_contextHandle && m_pfnContextFree) {
+        m_pfnContextFree(m_contextHandle, nullptr);
+        m_contextHandle = nullptr;
+    }
+    if (m_deviceHandle && m_pfnDeviceFree) {
+        m_pfnDeviceFree(m_deviceHandle);
+        m_deviceHandle = nullptr;
+    }
+    if (m_backendHandle && m_pfnBackendFree) {
+        m_pfnBackendFree(m_backendHandle);
+        m_backendHandle = nullptr;
+    }
+    m_graphHandle = nullptr;
+
     if (m_qnnHtpHandle) {
         dlclose(m_qnnHtpHandle);
         m_qnnHtpHandle = nullptr;
@@ -380,6 +436,18 @@ bool NPUFrameInterpolator::interpolate(AHardwareBuffer *prevBuffer,
     int resOut = AHardwareBuffer_lock(outputBuffer, usageWrite, -1, nullptr, &ptrOut);
     if (resOut != 0) {
         resOut = AHardwareBuffer_lock(outputBuffer, AHARDWAREBUFFER_USAGE_CPU_WRITE_RARELY, -1, nullptr, &ptrOut);
+    }
+
+        // If a compiled QNN HTP tensor graph binary is bound, dispatch onto Hexagon NPU
+    if (m_graphHandle && m_pfnGraphExecute) {
+        uint32_t execRes = m_pfnGraphExecute(m_graphHandle, nullptr, 0, nullptr, 0, nullptr, nullptr);
+        if (execRes == QNN_SUCCESS) {
+            AHardwareBuffer_unlock(prevBuffer, nullptr);
+            AHardwareBuffer_unlock(currBuffer, nullptr);
+            AHardwareBuffer_unlock(outputBuffer, nullptr);
+            return true;
+        }
+        NPU_LOGW("QnnGraph_execute returned %u; falling back to parallel NEON SIMD", execRes);
     }
 
     if (resA != 0 || resB != 0 || resOut != 0 || !ptrPrev || !ptrCurr || !ptrOut) {

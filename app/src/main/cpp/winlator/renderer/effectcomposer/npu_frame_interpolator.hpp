@@ -115,6 +115,29 @@ private:
     void *m_qnnSystemHandle = nullptr;
     void *m_cdspHandle = nullptr;
 
+    void *m_backendHandle = nullptr;
+    void *m_deviceHandle = nullptr;
+    void *m_contextHandle = nullptr;
+    void *m_graphHandle = nullptr;
+
+    typedef uint32_t (*pfnQnnBackend_create)(void*, const void**, void**);
+    typedef uint32_t (*pfnQnnBackend_initialize)(void*);
+    typedef uint32_t (*pfnQnnDevice_create)(void*, const void**, void**);
+    typedef uint32_t (*pfnQnnContext_create)(void*, void*, const void**, void**);
+    typedef uint32_t (*pfnQnnContext_free)(void*, void*);
+    typedef uint32_t (*pfnQnnDevice_free)(void*);
+    typedef uint32_t (*pfnQnnBackend_free)(void*);
+    typedef uint32_t (*pfnQnnGraph_execute)(void*, const void*, uint32_t, void*, uint32_t, void*, void*);
+
+    pfnQnnBackend_create      m_pfnBackendCreate = nullptr;
+    pfnQnnBackend_initialize  m_pfnBackendInitialize = nullptr;
+    pfnQnnDevice_create       m_pfnDeviceCreate = nullptr;
+    pfnQnnContext_create      m_pfnContextCreate = nullptr;
+    pfnQnnContext_free        m_pfnContextFree = nullptr;
+    pfnQnnDevice_free         m_pfnDeviceFree = nullptr;
+    pfnQnnBackend_free        m_pfnBackendFree = nullptr;
+    pfnQnnGraph_execute       m_pfnGraphExecute = nullptr;
+
     std::unique_ptr<FrameGenThreadPool> m_threadPool;
 
     // Fast working buffers for downsampled motion estimation & spatial filtering

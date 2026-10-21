@@ -13,3 +13,7 @@ app/src/main/assets/*.tar.zst*
 .kotlin/
 release-output/
 
+
+*.keystore
+*.jks
+app/keystore/

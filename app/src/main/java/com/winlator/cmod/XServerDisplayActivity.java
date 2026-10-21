@@ -2107,7 +2107,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         updateSharpnessVis.run();
 
-        final String[] frameGenLabels = {"Off", "GPU Interpolation (Vulkan FG 2.0)", "Qualcomm Hexagon NPU (HTP FG 2.0)"};
+        final String[] frameGenLabels = {"Off", "Adreno GPU Compute (Vulkan FG)", "OctaFX Motion Engine (Parallel NEON SIMD)"};
         if (spFrameGenFPS != null) {
             ArrayAdapter<String> a = createSidebarSpinnerAdapter(frameGenLabels);
             a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);

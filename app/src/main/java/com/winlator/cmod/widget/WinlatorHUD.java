@@ -832,9 +832,9 @@ public class WinlatorHUD extends View {
         float displayedFps = (fgMode > 0) ? (snapFps * 2f) : snapFps;
         String value;
         if (fgMode == 2) {
-            value = String.format(Locale.US, "%.0f [NPU FG 2.0]", displayedFps);
+            value = String.format(Locale.US, "%.0f [NEON SIMD 2X]", displayedFps);
         } else if (fgMode == 1) {
-            value = String.format(Locale.US, "%.0f [GPU FG 2.0]", displayedFps);
+            value = String.format(Locale.US, "%.0f [GPU Compute 2X]", displayedFps);
         } else {
             value = String.format(Locale.US, "%.0f", snapFps);
         }

@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <atomic>
 #include <unordered_set>
+#include <memory>
 
 #include "drawable.hpp"
 #include "renderer_jni.hpp"
@@ -97,19 +98,43 @@ class EffectComposer {
                     vkDestroyDescriptorPool(device, descriptorPool->handle, nullptr);
                 }
         };
-        
-        VkInstance instance;
-        VkPhysicalDevice physicalDevice;
-        VkDevice device;
-        VkQueue queue;
-        VkFence fence;
-        VkCommandPool commandPool;
-        VkCommandBuffer commandBuffer;
-        VkDescriptorSetLayout descriptorSetLayout;
-        VkPipelineLayout pipelineLayout;
+
+        struct VulkanAHBImage {
+            VkImage image = VK_NULL_HANDLE;
+            VkDeviceMemory memory = VK_NULL_HANDLE;
+            VkImageView imageView = VK_NULL_HANDLE;
+            VkImageLayout currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            VkPipelineStageFlagBits currentStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            VkAccessFlagBits currentAccess = static_cast<VkAccessFlagBits>(0);
+            uint32_t width = 0;
+            uint32_t height = 0;
+        };
+
+        VkInstance instance = VK_NULL_HANDLE;
+        VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+        VkDevice device = VK_NULL_HANDLE;
+        VkQueue queue = VK_NULL_HANDLE;
+        VkFence fence = VK_NULL_HANDLE;
+        VkCommandPool commandPool = VK_NULL_HANDLE;
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+        VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
         DescriptorPoolBuffer poolsBuffer;
-        VkPipeline colorSwapPipeline;
-        VkPipeline frameGenPipeline;
+        VkPipeline colorSwapPipeline = VK_NULL_HANDLE;
+
+        // Dedicated Vulkan Compute Frame Gen (Adreno 735 ALUs)
+        VkDescriptorSetLayout frameGenDescriptorSetLayout = VK_NULL_HANDLE;
+        VkPipelineLayout frameGenPipelineLayout = VK_NULL_HANDLE;
+        VkPipeline frameGenPipeline = VK_NULL_HANDLE;
+        VkSampler frameGenSampler = VK_NULL_HANDLE;
+        VkDescriptorPool frameGenDescriptorPool = VK_NULL_HANDLE;
+        VkDescriptorSet frameGenDescriptorSet = VK_NULL_HANDLE;
+
+        std::unordered_map<AHardwareBuffer*, VulkanAHBImage> ahbImages;
+        VulkanAHBImage *getOrCreateAHBImage(AHardwareBuffer *ahb, int width, int height, VkImageUsageFlags usage);
+        void destroyAHBImage(VulkanAHBImage &entry);
+        void cleanupAHBImages();
+
         VulkanTable dispatchTable;
         
         bool colorSwapEnabled = false;
@@ -126,6 +151,9 @@ class EffectComposer {
         void vulkanInterpolate(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer);
         
   public:      
+        EffectComposer();
+        ~EffectComposer();
+        void cleanup();
         VkResult createComposerTexture(Drawable *drawable);
         void destroyComposerTexture(Drawable *drawable);
         void init();
@@ -141,5 +169,3 @@ class EffectComposer {
         bool isSuitableForColorSwap(Drawable *drawable);
         bool isPending();
 };
-
-
