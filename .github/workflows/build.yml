@@ -130,7 +130,7 @@ jobs:
               - Clean automated signing via GitHub Actions secrets with safe debug fallback for local development.
             - **Accurate & Transparent UI / HUD Telemetry**:
               - Labels honestly communicate exact runtime execution: `[GPU Compute 2X]` and `[NEON SIMD 2X]`.
-            - **Cumulative Core**: Retains DXVK Async default, Turnip 6GB Shader Cache, Adreno 735 Dynamic GPU Sensor, IR3 GCM, and reversible DisplayX routing.
+            - **Cumulative Core**: Retains DXVK Async default, Turnip Shader Cache Persistence, Adreno 735 Dynamic GPU Sensor, IR3 GCM, and reversible DisplayX routing.
           files: release-output/Winlator-OctaFX-v1.1.0.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

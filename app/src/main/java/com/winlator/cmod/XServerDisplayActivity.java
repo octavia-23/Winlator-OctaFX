@@ -2699,8 +2699,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (!envVars.has("MESA_SHADER_CACHE_DIR")) {
             envVars.put("MESA_SHADER_CACHE_DIR", "/home/xuser/.cache");
         }
-        if (!envVars.has("MESA_SHADER_CACHE_MAX_SIZE") || "512MB".equals(envVars.get("MESA_SHADER_CACHE_MAX_SIZE"))) {
-            envVars.put("MESA_SHADER_CACHE_MAX_SIZE", "6144MB");
+        if (!envVars.has("MESA_SHADER_CACHE_MAX_SIZE")) {
+            envVars.put("MESA_SHADER_CACHE_MAX_SIZE", "1024MB");
         }
         if (!envVars.has("IR3_SHADER_DEBUG")) {
             envVars.put("IR3_SHADER_DEBUG", "gcm");
