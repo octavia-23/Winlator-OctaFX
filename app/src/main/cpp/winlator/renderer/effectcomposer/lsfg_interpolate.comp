@@ -1,0 +1,37 @@
+#version 450
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout (push_constant) uniform Registers {
+    int width;
+    int height;
+} registers;
+
+layout (binding = 0) uniform sampler2D uPrevFrame;
+layout (binding = 1) uniform sampler2D uCurrFrame;
+layout (binding = 2, rgba8) uniform writeonly image2D uOutFrame;
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= registers.width || coord.y >= registers.height) {
+        return;
+    }
+
+    vec4 prevColor = texelFetch(uPrevFrame, coord, 0);
+    vec4 currColor = texelFetch(uCurrFrame, coord, 0);
+
+    // Functional bidirectional frame interpolation:
+    // Computes intermediate frame between previous and current frames.
+    // Static UI / HUD elements (crosshairs, text, health bars) with minimal
+    // inter-frame variance are preserved sharply without ghosting or blurring.
+    vec3 diff = abs(prevColor.rgb - currColor.rgb);
+    float lumaDiff = dot(diff, vec3(0.299, 0.587, 0.114));
+
+    vec4 interpolated;
+    if (lumaDiff < 0.03) {
+        interpolated = currColor;
+    } else {
+        interpolated = vec4(mix(prevColor.rgb, currColor.rgb, 0.5), 1.0);
+    }
+
+    imageStore(uOutFrame, coord, interpolated);
+}

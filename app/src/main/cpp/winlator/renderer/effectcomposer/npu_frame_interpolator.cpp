@@ -50,7 +50,7 @@ bool NPUFrameInterpolator::init() {
     NPU_LOGI("Initializing Qualcomm Hexagon / NEON Frame Gen Engine...");
 
     if (!m_threadPool) {
-        m_threadPool = std::make_unique<FrameGenThreadPool>(4);
+        m_threadPool = std::make_unique<FrameGenThreadPool>(3);
     }
 
     if (initQnnHtp()) {
@@ -213,25 +213,18 @@ void NPUFrameInterpolator::extractLumaSlice(const uint8_t *srcRGBA, int srcStrid
         uint8_t *dstRow = dstLuma + y * dstW;
 
         int x = 0;
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
-        for (; x <= dstW - 8; x += 8) {
-            uint8_t r_arr[8], g_arr[8], b_arr[8];
-            for (int k = 0; k < 8; k++) {
-                const uint8_t *p = srcRow + (x + k) * 16;
-                r_arr[k] = p[0];
-                g_arr[k] = p[1];
-                b_arr[k] = p[2];
-            }
-            uint8x8_t r = vld1_u8(r_arr);
-            uint8x8_t g = vld1_u8(g_arr);
-            uint8x8_t b = vld1_u8(b_arr);
-            uint16x8_t luma16 = vmull_u8(r, vdup_n_u8(2));
-            luma16 = vmlal_u8(luma16, g, vdup_n_u8(5));
-            luma16 = vaddw_u8(luma16, b);
-            uint8x8_t luma8 = vshrn_n_u16(luma16, 3);
-            vst1_u8(dstRow + x, luma8);
+        const uint32_t *src32 = reinterpret_cast<const uint32_t *>(srcRow);
+        for (; x <= dstW - 4; x += 4) {
+            uint32_t p0 = src32[(x + 0) * 4];
+            uint32_t p1 = src32[(x + 1) * 4];
+            uint32_t p2 = src32[(x + 2) * 4];
+            uint32_t p3 = src32[(x + 3) * 4];
+
+            dstRow[x + 0] = static_cast<uint8_t>(((p0 & 0xFF) * 2 + ((p0 >> 8) & 0xFF) * 5 + ((p0 >> 16) & 0xFF)) >> 3);
+            dstRow[x + 1] = static_cast<uint8_t>(((p1 & 0xFF) * 2 + ((p1 >> 8) & 0xFF) * 5 + ((p1 >> 16) & 0xFF)) >> 3);
+            dstRow[x + 2] = static_cast<uint8_t>(((p2 & 0xFF) * 2 + ((p2 >> 8) & 0xFF) * 5 + ((p2 >> 16) & 0xFF)) >> 3);
+            dstRow[x + 3] = static_cast<uint8_t>(((p3 & 0xFF) * 2 + ((p3 >> 8) & 0xFF) * 5 + ((p3 >> 16) & 0xFF)) >> 3);
         }
-#endif
         for (; x < dstW; x++) {
             const uint8_t *p = srcRow + x * 16;
             dstRow[x] = static_cast<uint8_t>((p[0] * 2 + p[1] * 5 + p[2]) >> 3);
@@ -242,47 +235,91 @@ void NPUFrameInterpolator::extractLumaSlice(const uint8_t *srcRGBA, int srcStrid
 void NPUFrameInterpolator::computeBlockMotionSlice(const uint8_t *lumaA, const uint8_t *lumaB,
                                                   int8_t *flowX, int8_t *flowY,
                                                   int dsW, int dsH, int byStart, int byEnd) {
+    if (dsW <= 0 || dsH <= 0 || !lumaA || !lumaB || !flowX || !flowY) return;
+
     const int BLOCK_SIZE = 8;
     const int SEARCH_RADIUS = 6;
     int blocksX = (dsW + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    int blocksY = (dsH + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    byStart = std::clamp(byStart, 0, blocksY);
+    byEnd = std::clamp(byEnd, byStart, blocksY);
 
     for (int by = byStart; by < byEnd; by++) {
         int py = by * BLOCK_SIZE;
+        int curH = std::min(BLOCK_SIZE, dsH - py);
+        if (curH <= 0) continue;
+
         for (int bx = 0; bx < blocksX; bx++) {
             int px = bx * BLOCK_SIZE;
+            int curW = std::min(BLOCK_SIZE, dsW - px);
+            if (curW <= 0) continue;
+
             int blockIdx = by * blocksX + bx;
 
             int bestSAD = 1000000;
             int bestDx = 0;
             int bestDy = 0;
 
-            // Diamond / Spiral search pattern with early exit threshold
-            for (int dy = -SEARCH_RADIUS; dy <= SEARCH_RADIUS; dy += 2) {
-                int refY = py + dy;
-                if (refY < 0 || refY + BLOCK_SIZE > dsH) continue;
+            // Fast Interior Path: when block & entire search window are strictly within boundaries
+            bool isInterior = (curW == BLOCK_SIZE && curH == BLOCK_SIZE &&
+                               px >= SEARCH_RADIUS && (px + BLOCK_SIZE + SEARCH_RADIUS) <= dsW &&
+                               py >= SEARCH_RADIUS && (py + BLOCK_SIZE + SEARCH_RADIUS) <= dsH);
 
-                for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx += 2) {
-                    int refX = px + dx;
-                    if (refX < 0 || refX + BLOCK_SIZE > dsW) continue;
+            if (isInterior) {
+                // Direct coordinate arithmetic without redundant per-pixel clamp calculations
+                for (int dy = -SEARCH_RADIUS; dy <= SEARCH_RADIUS; dy += 2) {
+                    for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx += 2) {
+                        int sad = 0;
+                        for (int r = 0; r < 8; r += 2) {
+                            const uint8_t *rowCur = lumaB + (py + r) * dsW + px;
+                            const uint8_t *rowRef = lumaA + (py + r + dy) * dsW + (px + dx);
 
-                    int sad = 0;
-                    for (int r = 0; r < BLOCK_SIZE; r += 2) {
-                        const uint8_t *rowCur = lumaB + (py + r) * dsW + px;
-                        const uint8_t *rowRef = lumaA + (refY + r) * dsW + refX;
+                            sad += std::abs(static_cast<int>(rowCur[0]) - static_cast<int>(rowRef[0]))
+                                 + std::abs(static_cast<int>(rowCur[2]) - static_cast<int>(rowRef[2]))
+                                 + std::abs(static_cast<int>(rowCur[4]) - static_cast<int>(rowRef[4]))
+                                 + std::abs(static_cast<int>(rowCur[6]) - static_cast<int>(rowRef[6]));
+                        }
 
-                        for (int c = 0; c < BLOCK_SIZE; c += 2) {
-                            sad += std::abs(static_cast<int>(rowCur[c]) - static_cast<int>(rowRef[c]));
+                        sad += (std::abs(dx) + std::abs(dy)) * 2;
+
+                        if (sad < bestSAD) {
+                            bestSAD = sad;
+                            bestDx = dx;
+                            bestDy = dy;
+                            if (bestSAD < 16) goto match_found;
                         }
                     }
+                }
+            } else {
+                // Verified Phase 2 Scalar Boundary Fallback: handles partial blocks & edge clamping
+                for (int dy = -SEARCH_RADIUS; dy <= SEARCH_RADIUS; dy += 2) {
+                    for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx += 2) {
+                        int sad = 0;
+                        int numSamples = 0;
 
-                    // Spatial coherence penalty for large jumps
-                    sad += (std::abs(dx) + std::abs(dy)) * 2;
+                        for (int r = 0; r < curH; r += 2) {
+                            int curY = py + r;
+                            int refY = std::clamp(curY + dy, 0, dsH - 1);
+                            const uint8_t *rowCur = lumaB + curY * dsW;
+                            const uint8_t *rowRef = lumaA + refY * dsW;
 
-                    if (sad < bestSAD) {
-                        bestSAD = sad;
-                        bestDx = dx;
-                        bestDy = dy;
-                        if (bestSAD < 16) goto match_found; // Early exit on high-precision match
+                            for (int c = 0; c < curW; c += 2) {
+                                int curX = px + c;
+                                int refX = std::clamp(curX + dx, 0, dsW - 1);
+                                sad += std::abs(static_cast<int>(rowCur[curX]) - static_cast<int>(rowRef[refX]));
+                                numSamples++;
+                            }
+                        }
+
+                        sad += (std::abs(dx) + std::abs(dy)) * 2;
+
+                        if (sad < bestSAD) {
+                            bestSAD = sad;
+                            bestDx = dx;
+                            bestDy = dy;
+                            if (numSamples > 0 && bestSAD < numSamples) goto match_found;
+                        }
                     }
                 }
             }
@@ -332,9 +369,14 @@ void NPUFrameInterpolator::synthesizeFrameSlice(const uint8_t *srcA, int strideA
                                                int width, int height,
                                                int dsW, int dsH,
                                                int yStart, int yEnd) {
+    if (width <= 0 || height <= 0 || dsW <= 0 || dsH <= 0 || !srcA || !srcB || !dst || !flowX || !flowY) {
+        return;
+    }
+
     const int BLOCK_SIZE_FULL = 32;
     int blocksX = (dsW + 7) / 8;
     int blocksY = (dsH + 7) / 8;
+    if (blocksX <= 0 || blocksY <= 0) return;
 
     for (int y = yStart; y < yEnd; y++) {
         int by = std::clamp(y / BLOCK_SIZE_FULL, 0, blocksY - 1);
@@ -345,13 +387,13 @@ void NPUFrameInterpolator::synthesizeFrameSlice(const uint8_t *srcA, int strideA
         for (int x = 0; x < width; ) {
             int bx = std::clamp(x / BLOCK_SIZE_FULL, 0, blocksX - 1);
             int blockIdx = by * blocksX + bx;
+            int endX = std::min(x + BLOCK_SIZE_FULL, width);
 
             int vx = flowX[blockIdx];
             int vy = flowY[blockIdx];
 
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
             if (vx == 0 && vy == 0) {
-                int endX = std::min(x + BLOCK_SIZE_FULL, width);
                 for (; x <= endX - 4; x += 4) {
                     uint8x16_t a = vld1q_u8(rowA + x * 4);
                     uint8x16_t b = vld1q_u8(rowB + x * 4);
@@ -373,67 +415,69 @@ void NPUFrameInterpolator::synthesizeFrameSlice(const uint8_t *srcA, int strideA
             }
 #endif
 
-            // 1. FG 2.0 Static HUD / Crosshair Protection:
-            // If native pixel colors in Frame A & B are identical or near-identical,
-            // but the motion vector is non-zero, this is a fixed 2D UI element (HUD, health bar, crosshair).
-            // Lock displacement to 0 so HUD does not warp or smudge!
-            const uint8_t *origA = rowA + x * 4;
-            const uint8_t *origB = rowB + x * 4;
-            int diffOrig = std::abs(static_cast<int>(origA[0]) - static_cast<int>(origB[0])) +
-                           std::abs(static_cast<int>(origA[1]) - static_cast<int>(origB[1])) +
-                           std::abs(static_cast<int>(origA[2]) - static_cast<int>(origB[2]));
-
-            if (diffOrig < 18 && (std::abs(vx) + std::abs(vy)) > 6) {
-                vx = 0;
-                vy = 0;
-            }
-
             int halfVx = vx / 2;
             int halfVy = vy / 2;
 
-            int ax = std::clamp(x - halfVx, 0, width - 1);
+            // Pre-calculate row pointers for moving block row
             int ay = std::clamp(y - halfVy, 0, height - 1);
-            int bx_coord = std::clamp(x + halfVx, 0, width - 1);
             int by_coord = std::clamp(y + halfVy, 0, height - 1);
+            const uint8_t *rowAy = srcA + ay * (strideA * 4);
+            const uint8_t *rowBy = srcB + by_coord * (strideB * 4);
 
-            const uint8_t *pA = srcA + ay * (strideA * 4) + ax * 4;
-            const uint8_t *pB = srcB + by_coord * (strideB * 4) + bx_coord * 4;
-            uint8_t *pDst = rowDst + x * 4;
+            for (; x < endX; x++) {
+                const uint8_t *origA = rowA + x * 4;
+                const uint8_t *origB = rowB + x * 4;
+                uint8_t *pDst = rowDst + x * 4;
 
-            // 2. FG 2.0 Occlusion-Aware Confidence Weighting:
-            int diffWarped = std::abs(static_cast<int>(pA[0]) - static_cast<int>(pB[0])) +
-                             std::abs(static_cast<int>(pA[1]) - static_cast<int>(pB[1])) +
-                             std::abs(static_cast<int>(pA[2]) - static_cast<int>(pB[2]));
+                const uint8_t *pA;
+                const uint8_t *pB;
 
-            if (diffWarped < 65) {
-                // High confidence motion trajectory
-                pDst[0] = static_cast<uint8_t>((pA[0] + pB[0]) >> 1);
-                pDst[1] = static_cast<uint8_t>((pA[1] + pB[1]) >> 1);
-                pDst[2] = static_cast<uint8_t>((pA[2] + pB[2]) >> 1);
-                pDst[3] = 255;
-            } else if (diffWarped < 120) {
-                // Smooth transition zone (soft confidence weighting)
-                int blendA = (pA[0] + pB[0]) >> 1;
-                int blendB = (origA[0] + origB[0]) >> 1;
-                int weight = 120 - diffWarped; // 0 to 55
-                pDst[0] = static_cast<uint8_t>((blendA * weight + blendB * (55 - weight)) / 55);
+                // 1. FG 2.0 Static HUD / Crosshair Protection:
+                int diffOrig = std::abs(static_cast<int>(origA[0]) - static_cast<int>(origB[0])) +
+                               std::abs(static_cast<int>(origA[1]) - static_cast<int>(origB[1])) +
+                               std::abs(static_cast<int>(origA[2]) - static_cast<int>(origB[2]));
 
-                blendA = (pA[1] + pB[1]) >> 1;
-                blendB = (origA[1] + origB[1]) >> 1;
-                pDst[1] = static_cast<uint8_t>((blendA * weight + blendB * (55 - weight)) / 55);
+                if (diffOrig < 18 && (std::abs(vx) + std::abs(vy)) > 6) {
+                    pA = origA;
+                    pB = origB;
+                } else {
+                    int ax = std::clamp(x - halfVx, 0, width - 1);
+                    int bx_coord = std::clamp(x + halfVx, 0, width - 1);
+                    pA = rowAy + ax * 4;
+                    pB = rowBy + bx_coord * 4;
+                }
 
-                blendA = (pA[2] + pB[2]) >> 1;
-                blendB = (origA[2] + origB[2]) >> 1;
-                pDst[2] = static_cast<uint8_t>((blendA * weight + blendB * (55 - weight)) / 55);
-                pDst[3] = 255;
-            } else {
-                // Disocclusion fallback: native blend
-                pDst[0] = static_cast<uint8_t>((origA[0] + origB[0]) >> 1);
-                pDst[1] = static_cast<uint8_t>((origA[1] + origB[1]) >> 1);
-                pDst[2] = static_cast<uint8_t>((origA[2] + origB[2]) >> 1);
-                pDst[3] = 255;
+                // 2. FG 2.0 Occlusion-Aware Confidence Weighting:
+                int diffWarped = std::abs(static_cast<int>(pA[0]) - static_cast<int>(pB[0])) +
+                                 std::abs(static_cast<int>(pA[1]) - static_cast<int>(pB[1])) +
+                                 std::abs(static_cast<int>(pA[2]) - static_cast<int>(pB[2]));
+
+                if (diffWarped < 65) {
+                    pDst[0] = static_cast<uint8_t>((pA[0] + pB[0]) >> 1);
+                    pDst[1] = static_cast<uint8_t>((pA[1] + pB[1]) >> 1);
+                    pDst[2] = static_cast<uint8_t>((pA[2] + pB[2]) >> 1);
+                    pDst[3] = 255;
+                } else if (diffWarped < 120) {
+                    int blendA = (pA[0] + pB[0]) >> 1;
+                    int blendB = (origA[0] + origB[0]) >> 1;
+                    int weight = 120 - diffWarped;
+                    pDst[0] = static_cast<uint8_t>((blendA * weight + blendB * (55 - weight)) / 55);
+
+                    blendA = (pA[1] + pB[1]) >> 1;
+                    blendB = (origA[1] + origB[1]) >> 1;
+                    pDst[1] = static_cast<uint8_t>((blendA * weight + blendB * (55 - weight)) / 55);
+
+                    blendA = (pA[2] + pB[2]) >> 1;
+                    blendB = (origA[2] + origB[2]) >> 1;
+                    pDst[2] = static_cast<uint8_t>((blendA * weight + blendB * (55 - weight)) / 55);
+                    pDst[3] = 255;
+                } else {
+                    pDst[0] = static_cast<uint8_t>((origA[0] + origB[0]) >> 1);
+                    pDst[1] = static_cast<uint8_t>((origA[1] + origB[1]) >> 1);
+                    pDst[2] = static_cast<uint8_t>((origA[2] + origB[2]) >> 1);
+                    pDst[3] = 255;
+                }
             }
-            x++;
         }
     }
 }
@@ -442,7 +486,7 @@ bool NPUFrameInterpolator::interpolate(AHardwareBuffer *prevBuffer,
                                        AHardwareBuffer *currBuffer,
                                        AHardwareBuffer *outputBuffer,
                                        int width, int height) {
-    if (!prevBuffer || !currBuffer || !outputBuffer || width <= 0 || height <= 0) {
+    if (!prevBuffer || !currBuffer || !outputBuffer || width <= 0 || height <= 0 || width > 16384 || height > 16384) {
         return false;
     }
 
@@ -508,6 +552,8 @@ bool NPUFrameInterpolator::interpolate(AHardwareBuffer *prevBuffer,
     const int NUM_SLICES = 4;
 
     // Step 1: Parallel Luma Extraction
+    int lumaSliceH = (m_dsH + NUM_SLICES - 1) / NUM_SLICES;
+    if (lumaSliceH == 0) lumaSliceH = 1;
     struct LumaTaskCtx {
         NPUFrameInterpolator *self;
         const uint8_t *bufA;
@@ -516,22 +562,20 @@ bool NPUFrameInterpolator::interpolate(AHardwareBuffer *prevBuffer,
         int strideB;
         int lumaSliceH;
     };
-    LumaTaskCtx lumaCtx{this, bufA, strideA, bufB, strideB, m_dsH / NUM_SLICES};
+    LumaTaskCtx lumaCtx{this, bufA, strideA, bufB, strideB, lumaSliceH};
     auto lumaTask = [](void *ctx, int s) {
         auto *c = static_cast<LumaTaskCtx *>(ctx);
         int yStart = s * c->lumaSliceH;
-        int yEnd = (s == NUM_SLICES - 1) ? c->self->m_dsH : yStart + c->lumaSliceH;
+        if (yStart >= c->self->m_dsH) return;
+        int yEnd = std::min(yStart + c->lumaSliceH, c->self->m_dsH);
         c->self->extractLumaSlice(c->bufA, c->strideA, c->self->m_lumA.data(), c->self->m_dsW, yStart, yEnd);
         c->self->extractLumaSlice(c->bufB, c->strideB, c->self->m_lumB.data(), c->self->m_dsW, yStart, yEnd);
     };
-    for (int s = 0; s < NUM_SLICES; s++) {
-        m_threadPool->enqueue(lumaTask, &lumaCtx, s);
-    }
-    m_threadPool->waitAll();
+    m_threadPool->parallelFor(NUM_SLICES, lumaTask, &lumaCtx);
 
     // Step 2: Parallel Motion Estimation
     int blocksY = (m_dsH + 7) / 8;
-    int motionSliceH = blocksY / NUM_SLICES;
+    int motionSliceH = (blocksY + NUM_SLICES - 1) / NUM_SLICES;
     if (motionSliceH == 0) motionSliceH = 1;
     struct MotionTaskCtx {
         NPUFrameInterpolator *self;
@@ -543,22 +587,20 @@ bool NPUFrameInterpolator::interpolate(AHardwareBuffer *prevBuffer,
         auto *c = static_cast<MotionTaskCtx *>(ctx);
         int byStart = s * c->motionSliceH;
         if (byStart >= c->blocksY) return;
-        int byEnd = (s == NUM_SLICES - 1) ? c->blocksY : std::min(byStart + c->motionSliceH, c->blocksY);
+        int byEnd = std::min(byStart + c->motionSliceH, c->blocksY);
         c->self->computeBlockMotionSlice(c->self->m_lumA.data(), c->self->m_lumB.data(),
                                          c->self->m_flowX.data(), c->self->m_flowY.data(),
                                          c->self->m_dsW, c->self->m_dsH, byStart, byEnd);
     };
-    for (int s = 0; s < NUM_SLICES; s++) {
-        m_threadPool->enqueue(motionTask, &motionCtx, s);
-    }
-    m_threadPool->waitAll();
+    m_threadPool->parallelFor(NUM_SLICES, motionTask, &motionCtx);
 
     // Step 3: Spatial Vector Filtering (Vector Field Smoothing)
     int blocksX = (m_dsW + 7) / 8;
     filterMotionField(blocksX, blocksY);
 
     // Step 4: Parallel Frame Synthesis with HUD Preservation
-    int frameSliceH = height / NUM_SLICES;
+    int frameSliceH = (height + NUM_SLICES - 1) / NUM_SLICES;
+    if (frameSliceH == 0) frameSliceH = 1;
     struct SynthTaskCtx {
         NPUFrameInterpolator *self;
         const uint8_t *bufA;
@@ -575,15 +617,13 @@ bool NPUFrameInterpolator::interpolate(AHardwareBuffer *prevBuffer,
     auto synthTask = [](void *ctx, int s) {
         auto *c = static_cast<SynthTaskCtx *>(ctx);
         int yStart = s * c->frameSliceH;
-        int yEnd = (s == NUM_SLICES - 1) ? c->height : yStart + c->frameSliceH;
+        if (yStart >= c->height) return;
+        int yEnd = std::min(yStart + c->frameSliceH, c->height);
         c->self->synthesizeFrameSlice(c->bufA, c->strideA, c->bufB, c->strideB, c->bufOut, c->strideOut,
                                       c->self->m_filteredFlowX.data(), c->self->m_filteredFlowY.data(),
                                       c->width, c->height, c->self->m_dsW, c->self->m_dsH, yStart, yEnd);
     };
-    for (int s = 0; s < NUM_SLICES; s++) {
-        m_threadPool->enqueue(synthTask, &synthCtx, s);
-    }
-    m_threadPool->waitAll();
+    m_threadPool->parallelFor(NUM_SLICES, synthTask, &synthCtx);
 
     // Flush and unlock so SurfaceFlinger / GPU display immediately
     AHardwareBuffer_unlock(prevBuffer, nullptr);

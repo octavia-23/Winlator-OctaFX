@@ -54,6 +54,12 @@ EffectComposer::~EffectComposer() {
     cleanup();
 }
 
+void EffectComposer::handleDeviceLoss() {
+    printf("EffectComposer: Vulkan device loss encountered! Disabling GPU backend.");
+    initialized = false;
+    isOperationPending = false;
+}
+
 void EffectComposer::cleanup() {
     if (device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(device);
@@ -153,9 +159,27 @@ bool EffectComposer::vulkanInterpolate(Drawable *prevDrawable, Drawable *currDra
     std::lock_guard<std::mutex> lock(executionMutex);
     isOperationPending = true;
 
+    // 1. Wait for any previous in-flight GPU operation to finish before touching resources or fences
+    VkResult fenceRes = vkWaitForFences(device, 1, &fence, VK_TRUE, 50000000ULL);
+    if (fenceRes != VK_SUCCESS) {
+        if (fenceRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        isOperationPending = false;
+        printf("FrameGen: initial vkWaitForFences failed: %d", fenceRes);
+        return false;
+    }
+
+    VkResult resetFenceRes = vkResetFences(device, 1, &fence);
+    if (resetFenceRes != VK_SUCCESS) {
+        if (resetFenceRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        isOperationPending = false;
+        printf("FrameGen: vkResetFences failed: %d", resetFenceRes);
+        return false;
+    }
+
     int width = currDrawable->width;
     int height = currDrawable->height;
 
+    // 2. Safe resource query/import now that GPU is guaranteed not using them
     VulkanAHBImage *prevImg = getOrCreateAHBImage(prevDrawable->ahb, width, height, VK_IMAGE_USAGE_SAMPLED_BIT);
     VulkanAHBImage *currImg = getOrCreateAHBImage(currDrawable->ahb, width, height, VK_IMAGE_USAGE_SAMPLED_BIT);
     VulkanAHBImage *outImg = getOrCreateAHBImage(outputBuffer, width, height, VK_IMAGE_USAGE_STORAGE_BIT);
@@ -165,13 +189,7 @@ bool EffectComposer::vulkanInterpolate(Drawable *prevDrawable, Drawable *currDra
         return false;
     }
 
-    VkResult fenceRes = vkWaitForFences(device, 1, &fence, VK_TRUE, 50000000ULL);
-    if (fenceRes != VK_SUCCESS) {
-        isOperationPending = false;
-        return false;
-    }
-    vkResetFences(device, 1, &fence);
-
+    // 3. Update descriptor bindings
     VkDescriptorImageInfo prevImageInfo{};
     prevImageInfo.sampler = frameGenSampler;
     prevImageInfo.imageView = prevImg->imageView;
@@ -211,12 +229,25 @@ bool EffectComposer::vulkanInterpolate(Drawable *prevDrawable, Drawable *currDra
 
     vkUpdateDescriptorSets(device, 3, descWrites, 0, nullptr);
 
-    vkResetCommandBuffer(commandBuffer, 0);
+    // 4. Reset & begin command buffer with status check
+    VkResult cmdResetRes = vkResetCommandBuffer(commandBuffer, 0);
+    if (cmdResetRes != VK_SUCCESS) {
+        if (cmdResetRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        isOperationPending = false;
+        printf("FrameGen: vkResetCommandBuffer failed: %d", cmdResetRes);
+        return false;
+    }
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    VkResult cmdBeginRes = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    if (cmdBeginRes != VK_SUCCESS) {
+        if (cmdBeginRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        isOperationPending = false;
+        printf("FrameGen: vkBeginCommandBuffer failed: %d", cmdBeginRes);
+        return false;
+    }
 
     VkImageSubresourceRange subresourceRange = {
         .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -297,6 +328,7 @@ bool EffectComposer::vulkanInterpolate(Drawable *prevDrawable, Drawable *currDra
     uint32_t groupCountY = (height + 15) / 16;
     vkCmdDispatch(commandBuffer, groupCountX, groupCountY, 1);
 
+    // 5. Post-compute memory barrier making shader write available to external memory readers
     VkImageMemoryBarrier postBarrier{};
     postBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     postBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -310,11 +342,19 @@ bool EffectComposer::vulkanInterpolate(Drawable *prevDrawable, Drawable *currDra
 
     vkCmdPipelineBarrier(commandBuffer,
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &postBarrier);
+    outImg->currentAccess = VK_ACCESS_MEMORY_READ_BIT;
 
-    vkEndCommandBuffer(commandBuffer);
+    VkResult cmdEndRes = vkEndCommandBuffer(commandBuffer);
+    if (cmdEndRes != VK_SUCCESS) {
+        if (cmdEndRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        isOperationPending = false;
+        printf("FrameGen: vkEndCommandBuffer failed: %d", cmdEndRes);
+        return false;
+    }
 
+    // 6. Queue submit
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
@@ -322,12 +362,20 @@ bool EffectComposer::vulkanInterpolate(Drawable *prevDrawable, Drawable *currDra
 
     VkResult submitRes = vkQueueSubmit(queue, 1, &submitInfo, fence);
     if (submitRes != VK_SUCCESS) {
+        if (submitRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
         isOperationPending = false;
+        printf("FrameGen: vkQueueSubmit failed: %d", submitRes);
         return false;
     }
 
-    vkWaitForFences(device, 1, &fence, VK_TRUE, 50000000ULL);
+    // 7. Explicit completion wait with timeout and device-loss handling
+    VkResult waitRes = vkWaitForFences(device, 1, &fence, VK_TRUE, 50000000ULL);
     isOperationPending = false;
+    if (waitRes != VK_SUCCESS) {
+        if (waitRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        printf("FrameGen: final vkWaitForFences failed or timed out: %d", waitRes);
+        return false;
+    }
     return true;
 }
 
@@ -764,11 +812,20 @@ EffectComposer::VulkanAHBImage* EffectComposer::getOrCreateAHBImage(AHardwareBuf
     if (!ahb || !device) return nullptr;
     auto it = ahbImages.find(ahb);
     if (it != ahbImages.end()) {
-        if (it->second.width == static_cast<uint32_t>(width) && it->second.height == static_cast<uint32_t>(height)) {
+        if (it->second.width == static_cast<uint32_t>(width) &&
+            it->second.height == static_cast<uint32_t>(height) &&
+            it->second.usage == usage) {
             return &it->second;
         }
         destroyAHBImage(it->second);
         ahbImages.erase(it);
+    }
+
+    // Bounded cache size: purge oldest entries if cache exceeds 8 items
+    while (ahbImages.size() >= 8) {
+        auto oldest = ahbImages.begin();
+        destroyAHBImage(oldest->second);
+        ahbImages.erase(oldest);
     }
 
     VkAndroidHardwareBufferFormatPropertiesANDROID formatProps{};
@@ -784,7 +841,15 @@ EffectComposer::VulkanAHBImage* EffectComposer::getOrCreateAHBImage(AHardwareBuf
         return nullptr;
     }
 
+    if (formatProps.format == VK_FORMAT_UNDEFINED) {
+        printf("FrameGen: AHB format is undefined / external-only");
+        return nullptr;
+    }
+
     VulkanAHBImage entry{};
+    AHardwareBuffer_acquire(ahb);
+    entry.ahb = ahb;
+    entry.usage = usage;
     entry.width = static_cast<uint32_t>(width);
     entry.height = static_cast<uint32_t>(height);
 
@@ -866,6 +931,10 @@ EffectComposer::VulkanAHBImage* EffectComposer::getOrCreateAHBImage(AHardwareBuf
         printf("FrameGen: Failed to create image view: %d", res);
         vkFreeMemory(device, entry.memory, nullptr);
         vkDestroyImage(device, entry.image, nullptr);
+        if (entry.ahb != nullptr) {
+            AHardwareBuffer_release(entry.ahb);
+            entry.ahb = nullptr;
+        }
         return nullptr;
     }
 
@@ -890,9 +959,16 @@ void EffectComposer::destroyAHBImage(VulkanAHBImage &entry) {
         vkFreeMemory(device, entry.memory, nullptr);
         entry.memory = VK_NULL_HANDLE;
     }
+    if (entry.ahb != nullptr) {
+        AHardwareBuffer_release(entry.ahb);
+        entry.ahb = nullptr;
+    }
 }
 
 void EffectComposer::cleanupAHBImages() {
+    if (device != VK_NULL_HANDLE && fence != VK_NULL_HANDLE) {
+        vkWaitForFences(device, 1, &fence, VK_TRUE, 50000000ULL);
+    }
     for (auto &pair : ahbImages) {
         destroyAHBImage(pair.second);
     }
@@ -1274,8 +1350,19 @@ void EffectComposer::swapColors(Drawable *drawable) {
 }
 
 void EffectComposer::apply(Drawable *drawable) {
+    if (!initialized || !device || !commandBuffer || !queue || !fence) return;
+    if (!drawable) return;
+
     std::lock_guard<std::mutex> lock(executionMutex);
     isOperationPending = true;
+
+    VkResult waitRes = vkWaitForFences(device, 1, &fence, VK_TRUE, 50000000ULL);
+    if (waitRes != VK_SUCCESS) {
+        if (waitRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        printf("apply: initial vkWaitForFences failed: %d", waitRes);
+        isOperationPending = false;
+        return;
+    }
 
     if (!drawable->composerTexture) {
         VkResult result = createComposerTexture(drawable);
@@ -1298,11 +1385,22 @@ void EffectComposer::apply(Drawable *drawable) {
         }
         drawable->composerTexture->sizeChanged = false;
     }
-    
-    vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
-    vkResetFences(device, 1, &fence);
 
-    vkResetCommandBuffer(commandBuffer, 0);
+    VkResult resetRes = vkResetFences(device, 1, &fence);
+    if (resetRes != VK_SUCCESS) {
+        if (resetRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        printf("apply: vkResetFences failed: %d", resetRes);
+        isOperationPending = false;
+        return;
+    }
+
+    VkResult cmdResetRes = vkResetCommandBuffer(commandBuffer, 0);
+    if (cmdResetRes != VK_SUCCESS) {
+        if (cmdResetRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        printf("apply: vkResetCommandBuffer failed: %d", cmdResetRes);
+        isOperationPending = false;
+        return;
+    }
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1310,11 +1408,23 @@ void EffectComposer::apply(Drawable *drawable) {
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     beginInfo.pInheritanceInfo = nullptr;
 
-    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    VkResult cmdBeginRes = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    if (cmdBeginRes != VK_SUCCESS) {
+        if (cmdBeginRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        printf("apply: vkBeginCommandBuffer failed: %d", cmdBeginRes);
+        isOperationPending = false;
+        return;
+    }
 
     if (isSuitableForColorSwap(drawable)) swapColors(drawable);
 
-    vkEndCommandBuffer(commandBuffer);
+    VkResult cmdEndRes = vkEndCommandBuffer(commandBuffer);
+    if (cmdEndRes != VK_SUCCESS) {
+        if (cmdEndRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        printf("apply: vkEndCommandBuffer failed: %d", cmdEndRes);
+        isOperationPending = false;
+        return;
+    }
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1327,8 +1437,20 @@ void EffectComposer::apply(Drawable *drawable) {
     submitInfo.signalSemaphoreCount = 0;
     submitInfo.pSignalSemaphores = nullptr;
 
-    vkQueueSubmit(queue, 1, &submitInfo, fence);
+    VkResult submitRes = vkQueueSubmit(queue, 1, &submitInfo, fence);
+    if (submitRes != VK_SUCCESS) {
+        if (submitRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        printf("apply: vkQueueSubmit failed: %d", submitRes);
+        isOperationPending = false;
+        return;
+    }
+
+    waitRes = vkWaitForFences(device, 1, &fence, VK_TRUE, 50000000ULL);
     isOperationPending = false;
+    if (waitRes != VK_SUCCESS) {
+        if (waitRes == VK_ERROR_DEVICE_LOST) handleDeviceLoss();
+        printf("apply: final vkWaitForFences failed or timed out: %d", waitRes);
+    }
 }
 
 void EffectComposer::init() {

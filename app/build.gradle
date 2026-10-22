@@ -134,15 +134,21 @@ android {
 
     signingConfigs {
         release {
-            def keystorePath = System.getenv("RELEASE_KEYSTORE_FILE") ?: "app/keystore/release.keystore"
-            def keystoreFile = rootProject.file(keystorePath)
-            if (keystoreFile.exists()) {
-                storeFile keystoreFile
-                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "octafx2026"
-                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: "octafx"
-                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: "octafx2026"
-                v1SigningEnabled true
-                v2SigningEnabled true
+            def keystorePath = project.findProperty("RELEASE_KEYSTORE_FILE") ?: System.getenv("RELEASE_KEYSTORE_FILE")
+            def keystorePass = project.findProperty("RELEASE_KEYSTORE_PASSWORD") ?: System.getenv("RELEASE_KEYSTORE_PASSWORD")
+            def alias = project.findProperty("RELEASE_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS")
+            def keyPass = project.findProperty("RELEASE_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD")
+
+            if (keystorePath && keystorePass && alias && keyPass) {
+                def keystoreFile = rootProject.file(keystorePath)
+                if (keystoreFile.exists()) {
+                    storeFile keystoreFile
+                    storePassword keystorePass
+                    keyAlias alias
+                    keyPassword keyPass
+                    v1SigningEnabled true
+                    v2SigningEnabled true
+                }
             }
         }
     }
@@ -215,4 +221,23 @@ dependencies {
     implementation 'com.kohlschutter.junixsocket:junixsocket-common:2.6.0'
     implementation 'com.kohlschutter.junixsocket:junixsocket-native-common:2.6.0'
     annotationProcessor 'com.github.bumptech.glide:compiler:4.11.0'
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    def isReleasePackageTask = taskGraph.allTasks.any { task ->
+        task.name.contains("Release") && (task.name.startsWith("package") || task.name.startsWith("assemble") || task.name.startsWith("bundle"))
+    }
+    if (isReleasePackageTask) {
+        def releaseSigning = android.signingConfigs.release
+        if (releaseSigning.storeFile == null || !releaseSigning.storeFile.exists()) {
+            throw new InvalidUserDataException(
+                "Release signing configuration is incomplete or keystore file does not exist.\n" +
+                "To build a signed release APK/AAB, provide the following via environment variables or gradle.properties:\n" +
+                "  - RELEASE_KEYSTORE_FILE (valid path to keystore)\n" +
+                "  - RELEASE_KEYSTORE_PASSWORD\n" +
+                "  - RELEASE_KEY_ALIAS\n" +
+                "  - RELEASE_KEY_PASSWORD"
+            )
+        }
+    }
 }

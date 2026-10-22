@@ -101,12 +101,14 @@ class EffectComposer {
         };
 
         struct VulkanAHBImage {
+            AHardwareBuffer *ahb = nullptr;
             VkImage image = VK_NULL_HANDLE;
             VkDeviceMemory memory = VK_NULL_HANDLE;
             VkImageView imageView = VK_NULL_HANDLE;
             VkImageLayout currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             VkPipelineStageFlagBits currentStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
             VkAccessFlagBits currentAccess = static_cast<VkAccessFlagBits>(0);
+            VkImageUsageFlags usage = 0;
             uint32_t width = 0;
             uint32_t height = 0;
         };
@@ -134,7 +136,6 @@ class EffectComposer {
         std::unordered_map<AHardwareBuffer*, VulkanAHBImage> ahbImages;
         VulkanAHBImage *getOrCreateAHBImage(AHardwareBuffer *ahb, int width, int height, VkImageUsageFlags usage);
         void destroyAHBImage(VulkanAHBImage &entry);
-        void cleanupAHBImages();
 
         VulkanTable dispatchTable;
         
@@ -149,6 +150,7 @@ class EffectComposer {
         VkResult pickPhysicalDevice();
         VkResult createDevice();
         VkResult createPipelines();
+        void handleDeviceLoss();
         void swapColors(Drawable *drawable);
         bool vulkanInterpolate(Drawable *prevDrawable, Drawable *currDrawable, AHardwareBuffer *outputBuffer);
         
@@ -156,6 +158,7 @@ class EffectComposer {
         EffectComposer();
         ~EffectComposer();
         void cleanup();
+        void cleanupAHBImages();
         VkResult createComposerTexture(Drawable *drawable);
         void destroyComposerTexture(Drawable *drawable);
         void init();

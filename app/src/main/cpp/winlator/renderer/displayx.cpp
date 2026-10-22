@@ -443,20 +443,7 @@ int64_t DisplayX::getCurrentTimeNanos() {
 }
 
 void DisplayX::onCommitCallback(void *context, ASurfaceTransactionStats *stats) {
-    auto *self = reinterpret_cast<DisplayX *>(context);
-    if (!self->isPerformanceHintAPIAvailable() || !self->performanceHintSession || !self->performanceHintManager || !self->perfMode)
-        return;
-    
-    if (self->previousReportedWorkTime == 0) {
-        auto currentTime = self->getCurrentTimeNanos();
-        self->previousReportedWorkTime = currentTime;
-        return;
-    }     
-   
-    auto currentTime = self->getCurrentTimeNanos();
-    auto elapsed = currentTime - self->previousReportedWorkTime;
-    pfnAPerformanceHintReportActualWorkDuration(self->performanceHintSession, elapsed);
-    self->previousReportedWorkTime = currentTime;
+    // SurfaceFlinger commit callback
 }
 
 void DisplayX::onCompleteCallback(void *context, ASurfaceTransactionStats *stats) {
@@ -506,6 +493,9 @@ void DisplayX::ensureFrameGenBuffers(int width, int height) {
 }
 
 void DisplayX::releaseFrameGenBuffers() {
+    if (effectComposer) {
+        effectComposer->cleanupAHBImages();
+    }
     for (int i = 0; i < 2; i++) {
         if (frameGenBuffers[i]) {
             AHardwareBuffer_release(frameGenBuffers[i]);
@@ -515,6 +505,8 @@ void DisplayX::releaseFrameGenBuffers() {
     frameGenBufferWidth = 0;
     frameGenBufferHeight = 0;
     prevFrameGenDrawable = nullptr;
+    lastFrameGenArrivalTime = std::chrono::steady_clock::time_point{};
+    smoothedFrameIntervalNs = 16666667LL;
 }
 
 void DisplayX::presentThreadLoop() {
@@ -555,6 +547,9 @@ void DisplayX::presentThreadLoop() {
         
         if (presentRR) requestUpdate = false;
         lock.unlock();
+
+        int64_t workStartNs = getCurrentTimeNanos();
+        int64_t totalSleepNs = 0;
         
         auto completeContext = std::make_unique<OnCompleteContext>();
         
@@ -576,23 +571,47 @@ void DisplayX::presentThreadLoop() {
                 if (fgMode > 0 && drawable->ahb && drawable->width > 0 && drawable->height > 0) {
                     ensureFrameGenBuffers(drawable->width, drawable->height);
                     if (frameGenBuffers[0] && prevFrameGenDrawable && prevFrameGenDrawable->ahb && prevFrameGenDrawable != drawable) {
-                        auto now = std::chrono::steady_clock::now();
-                        int64_t elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFrameGenPresentTime).count();
-                        if (elapsedMs >= 4 && elapsedMs <= 100) {
-                            smoothedFrameIntervalMs = (smoothedFrameIntervalMs * 3 + static_cast<int>(elapsedMs)) / 4;
+                        auto arrivalTime = std::chrono::steady_clock::now();
+                        if (lastFrameGenArrivalTime.time_since_epoch().count() > 0) {
+                            int64_t deltaNs = std::chrono::duration_cast<std::chrono::nanoseconds>(arrivalTime - lastFrameGenArrivalTime).count();
+                            if (deltaNs >= 4000000LL && deltaNs <= 100000000LL) {
+                                smoothedFrameIntervalNs = (smoothedFrameIntervalNs * 3 + deltaNs) / 4;
+                            }
+                        } else {
+                            float hz = (xServer && xServer->refreshRate > 10.0f) ? xServer->refreshRate : 60.0f;
+                            smoothedFrameIntervalNs = static_cast<int64_t>(1000000000.0 / static_cast<double>(hz));
                         }
-                        lastFrameGenPresentTime = now;
+                        lastFrameGenArrivalTime = arrivalTime;
+
+                        int64_t halfIntervalNs = std::clamp<int64_t>(smoothedFrameIntervalNs / 2, 2000000, 50000000);
+                        auto nativeDeadline = arrivalTime + std::chrono::nanoseconds(halfIntervalNs);
 
                         AHardwareBuffer *interBuffer = frameGenBuffers[frameGenBufferIdx];
                         frameGenBufferIdx = (frameGenBufferIdx + 1) % 2;
 
-                        if (effectComposer->generateFrame(prevFrameGenDrawable, drawable, interBuffer)) {
-                            pfnASurfaceTransactionSetBuffer(presentTransaction, window->control, interBuffer, -1);
-                            pfnASurfaceTransactionSetBufferTransparency(presentTransaction, window->control, ASURFACE_TRANSACTION_TRANSPARENCY_OPAQUE);
-                            pfnASurfaceTransactionApply(presentTransaction);
+                        bool genOk = effectComposer->generateFrame(prevFrameGenDrawable, drawable, interBuffer);
+                        auto genDoneTime = std::chrono::steady_clock::now();
+
+                        if (genOk) {
+                            // Present synthetic buffer only if finished before midpoint deadline and no newer request is queued
+                            if (genDoneTime < nativeDeadline && presentRequests.empty()) {
+                                pfnASurfaceTransactionSetBuffer(presentTransaction, window->control, interBuffer, -1);
+                                pfnASurfaceTransactionSetBufferTransparency(presentTransaction, window->control, ASURFACE_TRANSACTION_TRANSPARENCY_OPAQUE);
+                                pfnASurfaceTransactionApply(presentTransaction);
+
+                                auto remainingWait = nativeDeadline - std::chrono::steady_clock::now();
+                                if (remainingWait > std::chrono::nanoseconds(200000LL)) {
+                                    auto sleepStart = std::chrono::steady_clock::now();
+                                    std::this_thread::sleep_for(remainingWait);
+                                    auto sleepEnd = std::chrono::steady_clock::now();
+                                    totalSleepNs += std::chrono::duration_cast<std::chrono::nanoseconds>(sleepEnd - sleepStart).count();
+                                }
+                            }
+                            // If genDoneTime >= nativeDeadline: synthetic work exceeded midpoint deadline.
+                            // Dropping the late synthetic frame avoids delaying native frame presentation.
                         }
                     } else {
-                        lastFrameGenPresentTime = std::chrono::steady_clock::now();
+                        lastFrameGenArrivalTime = std::chrono::steady_clock::now();
                     }
                     prevFrameGenDrawable = drawable;
                 }
@@ -618,6 +637,13 @@ void DisplayX::presentThreadLoop() {
         if (perfMode && pfnASurfaceTransactionSetOnCommit) pfnASurfaceTransactionSetOnCommit(presentTransaction, this, DisplayX::onCommitCallback);
         if (!completeContext->requests.empty()) pfnASurfaceTransactionSetOnComplete(presentTransaction, completeContext.release(), DisplayX::onCompleteCallback);
         pfnASurfaceTransactionApply(presentTransaction);
+
+        // Phase 7: Report actual measured work duration (excluding pacing sleep) to Android Performance Hint API
+        int64_t workEndNs = getCurrentTimeNanos();
+        int64_t activeDurationNs = (workEndNs - workStartNs) - totalSleepNs;
+        if (activeDurationNs > 0 && isPerformanceHintAPIAvailable() && performanceHintSession && perfMode) {
+            pfnAPerformanceHintReportActualWorkDuration(performanceHintSession, activeDurationNs);
+        }
     }
     
     if (isPerformanceHintAPIAvailable() && performanceHintSession) {

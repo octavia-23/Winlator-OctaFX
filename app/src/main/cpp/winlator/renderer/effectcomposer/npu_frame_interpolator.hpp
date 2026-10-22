@@ -32,7 +32,7 @@ public:
         int sliceIdx = 0;
     };
 
-    explicit FrameGenThreadPool(size_t threads = 4) : stop(false), inFlight(0) {
+    explicit FrameGenThreadPool(size_t threads = 3) : stop(false), inFlight(0) {
         for (size_t i = 0; i < threads; ++i) {
             workers.emplace_back([this] {
                 while (true) {
@@ -54,6 +54,38 @@ public:
                         finished_cv.notify_all();
                     }
                 }
+            });
+        }
+    }
+
+    void parallelFor(int numSlices, void (*func)(void *ctx, int sliceIdx), void *ctx) {
+        if (numSlices <= 0 || !func) return;
+        if (numSlices == 1 || workers.empty() || stop) {
+            for (int i = 0; i < numSlices; ++i) {
+                func(ctx, i);
+            }
+            return;
+        }
+
+        int bgSlices = numSlices - 1;
+        inFlight.store(bgSlices, std::memory_order_release);
+
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            for (int i = 1; i < numSlices; ++i) {
+                tasks.push(SliceTask{func, ctx, i});
+            }
+        }
+        cv.notify_all();
+
+        // Calling thread directly executes slice 0 to prevent idle stalls and avoid oversubscription
+        func(ctx, 0);
+
+        // Wait for background slices to complete
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            finished_cv.wait(lock, [this] {
+                return inFlight.load(std::memory_order_acquire) == 0;
             });
         }
     }

@@ -140,7 +140,6 @@ class DisplayX {
         
         bool fullscreen = false;
         int eventsPending = 0;
-        int64_t previousReportedWorkTime = 0;
         AVsyncId vsyncId = -1;
 
         // Frame Generation intermediate presentation buffers & pacing
@@ -149,8 +148,8 @@ class DisplayX {
         int frameGenBufferWidth = 0;
         int frameGenBufferHeight = 0;
         Drawable *prevFrameGenDrawable = nullptr;
-        std::chrono::steady_clock::time_point lastFrameGenPresentTime;
-        int smoothedFrameIntervalMs = 16;
+        std::chrono::steady_clock::time_point lastFrameGenArrivalTime;
+        int64_t smoothedFrameIntervalNs = 16666667LL;
 
         void ensureFrameGenBuffers(int width, int height);
         void releaseFrameGenBuffers();
