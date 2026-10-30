@@ -138,6 +138,9 @@ public class VulkanXServerView extends XServerRendererView implements SurfaceHol
     private native void nativeSetPresentMode(long handle, int mode);
     private native int[] nativeGetSupportedPresentModes(long handle);
 
+    public static native String nativeProbeArmASR(long handle);
+    public static native String nativeRunArmASRBenchmark(long handle, int renderWidth, int renderHeight, int displayWidth, int displayHeight, int frames);
+
     private native void nativeInitRootWindow(long handle, long rootId, long contentId, int width, int height);
     private native void nativeCreateWindow(long handle, long id, long parentId, long contentId,
                                            int x, int y, int width, int height);
@@ -662,6 +665,14 @@ public class VulkanXServerView extends XServerRendererView implements SurfaceHol
             if (nativeHandle != 0) return nativeGetSupportedPresentModes(nativeHandle);
         }
         return new int[0];
+    }
+
+    public String probeArmASR() {
+        synchronized (lock) { return nativeProbeArmASR(nativeHandle); }
+    }
+
+    public String runArmASRBenchmark(int renderWidth, int renderHeight, int displayWidth, int displayHeight, int frames) {
+        synchronized (lock) { return nativeRunArmASRBenchmark(nativeHandle, renderWidth, renderHeight, displayWidth, displayHeight, frames); }
     }
 
     @Override

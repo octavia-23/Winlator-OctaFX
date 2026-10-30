@@ -7,6 +7,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wno-unused-function -Wimplicit-function
 add_subdirectory(OpenXR-SDK)
 add_subdirectory(patchelf)
 add_subdirectory(adrenotools)
+add_subdirectory(arm_asr)
 
 # Add Winlator shared library
 add_library(winlator SHARED
@@ -215,6 +216,11 @@ file(WRITE ${VULKAN_CONTEXT_LEGACY} "${VULKAN_CONTEXT_TEXT}")
 include_directories(
         ${CMAKE_CURRENT_BINARY_DIR}
         ${VULKAN_RENDERER_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/arm_asr/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/arm_asr/include/host
+        ${CMAKE_CURRENT_SOURCE_DIR}/arm_asr/include/host/backends/vk
+        ${CMAKE_CURRENT_SOURCE_DIR}/arm_asr/include/gpu
+        ${CMAKE_CURRENT_SOURCE_DIR}/winlator/renderer/asr
 )
 
 add_library(vulkan_renderer SHARED
@@ -226,6 +232,10 @@ add_library(vulkan_renderer SHARED
         winlator/renderer/vulkan/view_transformation.cpp
         winlator/renderer/vulkan/xform.cpp
 
+        winlator/renderer/asr/arm_asr_context.cpp
+        winlator/renderer/asr/arm_asr_test_pipeline.cpp
+        winlator/renderer/asr/arm_asr_jni.cpp
+
         ${CMAKE_CURRENT_BINARY_DIR}/window_vert.h
         ${CMAKE_CURRENT_BINARY_DIR}/window_frag.h
         ${CMAKE_CURRENT_BINARY_DIR}/window_sgsr_frag.h
@@ -236,7 +246,7 @@ add_library(vulkan_renderer SHARED
 )
 
 set_target_properties(vulkan_renderer PROPERTIES
-        CXX_STANDARD 17
+        CXX_STANDARD 20
         CXX_STANDARD_REQUIRED ON
         CXX_EXTENSIONS OFF
 )
@@ -246,6 +256,8 @@ target_compile_options(vulkan_renderer PRIVATE
 )
 
 target_link_libraries(vulkan_renderer
+        Arm_ASR_api
+        Arm_ASR_backend
         log
         android
         vulkan
