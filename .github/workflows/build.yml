@@ -101,36 +101,38 @@ jobs:
           mkdir -p release-output
           APK_FILE=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
           echo "Found APK: $APK_FILE"
-          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.1.0.apk
+          cp "$APK_FILE" release-output/Winlator-OctaFX-v1.2.0.apk
           ls -lh release-output/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Winlator-OctaFX-v1.1.0
-          path: release-output/Winlator-OctaFX-v1.1.0.apk
+          name: Winlator-OctaFX-v1.2.0
+          path: release-output/Winlator-OctaFX-v1.2.0.apk
           if-no-files-found: error
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/4.1'
         with:
-          tag_name: v1.1.0-OctaFX
-          name: "Winlator-OctaFX v1.1.0 (Hardware Vulkan Compute & Hexagon QNN HTP Frame Generation)"
+          tag_name: v1.2.0-OctaFX
+          name: "Winlator-OctaFX v1.2.0 (Arm Accuracy Super Resolution Integration)"
           body: |
-            Winlator-OctaFX v1.1.0 (Security, Hardware Vulkan Compute & Qualcomm Hexagon QNN HTP):
-            - **Hardware Vulkan Compute Frame Gen**:
-              - Authentic Vulkan compute pipeline (`lsfg_interpolate_spv`) executing on Adreno 735 ALUs.
-              - 3-binding compute descriptor layout (`sampler2D` previous, `sampler2D` current, `image2D` storage output) with zero CPU overhead.
-            - **Qualcomm Hexagon QNN HTP Lifecycle**:
-              - Full QNN Backend, Device, Context lifecycle initialization and graph execution hooks.
+            Winlator-OctaFX v1.2.0 (Arm Accuracy Super Resolution & Advanced Rendering Subsystems):
+            - **Arm Accuracy Super Resolution (ASR) Temporal Engine**:
+              - Integrated Arm ASR generic library core and Vulkan backend compiled with NDK Clang 21 for ARM64.
+              - Prebuilt 16-bit SPIR-V compute shader blobs optimized for Wave32 execution on Snapdragon 8s Gen 3 / Adreno 735.
+              - `ArmASRContext` high-level RAII wrapper managing host-allocated scratch memory (~2.77 MiB) and compute dispatch.
+            - **Controlled 3D Temporal Verification Pipeline**:
+              - High-fidelity 3D procedural G-buffer pipeline generating authentic 32-bit analytic depth (`D32_SFLOAT`), exact per-pixel screen-space motion vectors (`R16G16_SFLOAT`), and Halton subpixel camera jitter.
+              - GPU execution time profiling via Vulkan timestamp query pools (`VkQueryPool`).
+            - **JNI Hardware Telemetry & Benchmarking Bridge**:
+              - Added `nativeProbeArmASR` and `nativeRunArmASRBenchmark` in `VulkanXServerView` supporting both active renderer and headless Vulkan probing.
+            - **Cumulative Core Features**:
+              - Hardware Vulkan Compute Frame Gen & Qualcomm Hexagon QNN HTP lifecycle.
               - Multi-threaded sub-2.5ms ARM NEON SIMD engine across Kryo cores.
-            - **Repository Security & Credential Hardening**:
-              - Hardcoded keystores and plaintext signing passwords purged from git history and build scripts.
-              - Clean automated signing via GitHub Actions secrets with safe debug fallback for local development.
-            - **Accurate & Transparent UI / HUD Telemetry**:
-              - Labels honestly communicate exact runtime execution: `[GPU Compute 2X]` and `[NEON SIMD 2X]`.
-            - **Cumulative Core**: Retains DXVK Async default, Turnip Shader Cache Persistence, Adreno 735 Dynamic GPU Sensor, IR3 GCM, and reversible DisplayX routing.
-          files: release-output/Winlator-OctaFX-v1.1.0.apk
+              - Clean automated signing via GitHub Actions secrets.
+              - DXVK Async default, Turnip Shader Cache Persistence, and Adreno 735 Dynamic GPU Sensor.
+          files: release-output/Winlator-OctaFX-v1.2.0.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
